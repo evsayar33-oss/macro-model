@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- 1. AYARLAR VE API ---
-st.set_page_config(page_title="Makro Trend v3.1", layout="wide")
+st.set_page_config(page_title="Makro Trend v3.2", layout="wide")
 
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
@@ -16,9 +16,7 @@ except:
     st.error("Lütfen Streamlit Cloud ayarlarına FRED_API_KEY eklediğinizden emin olun!")
     st.stop()
 
-# --- 2. GELİŞMİŞ VERİ ÇEKME FONKSİYONLARI (Z-SKOR HATASI ÇÖZÜLDÜ) ---
-# Haftalık verileri günlüğe çevirmek için resample('B') (Business Days) eklendi
-# Veri derinliği 2500 güne (Yaklaşık 7 yıl) çıkarıldı
+# --- 2. GELİŞMİŞ VERİ ÇEKME FONKSİYONLARI ---
 @st.cache_data(ttl=3600)
 def fetch_fred_data(series_id, days=2500):
     end_date = datetime.today()
@@ -43,7 +41,6 @@ def fetch_yf_data(ticker, days=2500):
             close_data = close_data.iloc[:, 0]
             
         close_data.index = pd.to_datetime(close_data.index)
-        # FRED ile matematiksel işleme girebilmesi için Saat/Bölge formatını temizliyoruz
         if close_data.index.tz is not None:
             close_data.index = close_data.index.tz_localize(None)
             
@@ -102,7 +99,7 @@ def process_indicator(data_series, invert=False):
     return z_score, float(data_series.iloc[-1])
 
 # --- 5. ARAYÜZ VE UYGULAMA MANTIĞI ---
-st.title("🏛️ KÜRESEL MAKRO & SWING TREND MODELİ (v3.1 TAM SÜRÜM)")
+st.title("🏛️ KÜRESEL MAKRO & SWING TREND MODELİ (v3.2)")
 st.markdown("**10 Katmanlı Kurumsal Likidite, Oynaklık ve Rejim Filtreli Z-Skor Motoru**")
 
 st.sidebar.header("VARLIK SEÇİMİ")
@@ -117,27 +114,27 @@ total_score = 0
 with st.spinner(f"{asset} için 10 ayrı kurumsal katman (Global API'ler) taranıyor, hesaplanıyor..."):
     if asset == "Altın (XAU)":
         metrics = [
-            ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.15, True), # Düşmesi altını uçurur (Ters)
-            ("MOVE Endeksi (Tahvil Paniği)", fetch_yf_data('^MOVE'), 0.12, False), # Artması altını uçurur
-            ("Kurumsal Kredi Stresi (OAS)", fetch_fred_data('BAMLC0A0CM'), 0.10, False), # Artması güvenli limana yarar
+            ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.15, True), 
+            ("MOVE Endeksi (Tahvil Paniği)", fetch_yf_data('^MOVE'), 0.12, False), 
+            ("Kurumsal Kredi Stresi (OAS)", fetch_fred_data('BAMLC0A0CM'), 0.10, False), 
             ("Fed Net Likiditesi (Bilanço)", fetch_fred_data('WALCL'), 0.10, False),
             ("Getiri Eğrisi Eğim İvmesi (10Y-2Y)", fetch_fred_data('T10Y22Y'), 0.10, False),
-            ("Dolar Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.10, True), # Ters
+            ("Dolar Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.10, True), 
             ("Altın / Petrol Stagflasyon Rasyosu", fetch_yf_data('GC=F') / fetch_yf_data('CL=F'), 0.08, False),
-            ("S&P 500 / Altın Rasyosu (Fırsat Maliyeti)", fetch_yf_data('^GSPC') / fetch_yf_data('GC=F'), 0.10, True), # Ters
+            ("S&P 500 / Altın Rasyosu (Fırsat Maliyeti)", fetch_yf_data('^GSPC') / fetch_yf_data('GC=F'), 0.10, True), 
             ("Altın Momentum Trendi (GC=F)", fetch_yf_data('GC=F'), 0.08, False),
-            ("Bakır / Altın Rasyosu", fetch_yf_data('HG=F') / fetch_yf_data('GC=F'), 0.07, True), # Ters
+            ("Bakır / Altın Rasyosu", fetch_yf_data('HG=F') / fetch_yf_data('GC=F'), 0.07, True), 
         ]
     elif asset == "Gümüş (XAG)":
         metrics = [
             ("Endüstriyel Metaller Sepeti (DBB)", fetch_yf_data('DBB'), 0.15, False),
             ("Gümüş Momentum Trendi (SI=F)", fetch_yf_data('SI=F'), 0.15, False),
             ("Bakır / Altın Büyüme Rasyosu", fetch_yf_data('HG=F') / fetch_yf_data('GC=F'), 0.12, False),
-            ("Kurumsal Kredi Stresi (OAS)", fetch_fred_data('BAMLC0A0CM'), 0.10, True), # Sanayi için Stres Kötüdür (Ters)
-            ("Dolar Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.10, True), # Ters
-            ("Altın / Gümüş Göreceli Güç", fetch_yf_data('GC=F') / fetch_yf_data('SI=F'), 0.10, True), # Oran düşerse gümüş ralli yapar (Ters)
-            ("Çin Piyasası İvmesi (MCHI)", fetch_yf_data('MCHI'), 0.08, False), # En büyük tüketici
-            ("ABD 10Y Tahvil Faizi", fetch_yf_data('^TNX'), 0.08, True), # Ters
+            ("Kurumsal Kredi Stresi (OAS)", fetch_fred_data('BAMLC0A0CM'), 0.10, True), 
+            ("Dolar Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.10, True), 
+            ("Altın / Gümüş Ayrışma (Divergence) Rasyosu", fetch_yf_data('GC=F') / fetch_yf_data('SI=F'), 0.10, True), 
+            ("Çin Piyasası İvmesi (MCHI)", fetch_yf_data('MCHI'), 0.08, False), 
+            ("ABD 10Y Tahvil Faizi", fetch_yf_data('^TNX'), 0.08, True), 
             ("S&P 500 Risk İştahı", fetch_yf_data('^GSPC'), 0.07, False),
             ("Ham Petrol Sanayi Talebi (WTI)", fetch_yf_data('CL=F'), 0.05, False),
         ]
@@ -145,14 +142,14 @@ with st.spinner(f"{asset} için 10 ayrı kurumsal katman (Global API'ler) taran�
         metrics = [
             ("Ticari Banka Rezervleri (Direkt Yakıt)", fetch_fred_data('WRESBAL'), 0.15, False),
             ("Hisse Senedi Risk Primi (QQQ / 10Y)", fetch_yf_data('QQQ') / fetch_yf_data('^TNX'), 0.12, False),
-            ("Yen Carry Trade Döngüsü (USD/JPY)", fetch_yf_data('JPY=X'), 0.12, False), # Yükselişi küresel likiditedir
-            ("VIX Volatilite Eğilimi", fetch_yf_data('^VIX'), 0.10, True), # Ters
+            ("Yen Carry Trade Döngüsü (USD/JPY)", fetch_yf_data('JPY=X'), 0.12, False), 
+            ("VIX Volatilite Eğilimi", fetch_yf_data('^VIX'), 0.10, True), 
             ("Yarı İletken Liderliği (SOXX/QQQ)", fetch_yf_data('SOXX') / fetch_yf_data('QQQ'), 0.10, False),
-            ("Kurumsal Kredi Stresi (OAS)", fetch_fred_data('BAMLC0A0CM'), 0.10, True), # Ters
-            ("MOVE Endeksi (Tahvil Baskısı)", fetch_yf_data('^MOVE'), 0.10, True), # Teknoloji için bond paniği kötüdür (Ters)
+            ("Kurumsal Kredi Stresi (OAS)", fetch_fred_data('BAMLC0A0CM'), 0.10, True), 
+            ("MOVE Endeksi (Tahvil Baskısı)", fetch_yf_data('^MOVE'), 0.10, True), 
             ("Fed Toplam Bilanço Genişlemesi", fetch_fred_data('WALCL'), 0.08, False),
-            ("SKEW Siyah Kuğu Kuyruk Riski", fetch_yf_data('^SKEW'), 0.08, True), # Ters
-            ("Dolar Endeksi (DX-Y.NYB)", fetch_yf_data('DX-Y.NYB'), 0.05, True), # Ters
+            ("SKEW Siyah Kuğu Kuyruk Riski", fetch_yf_data('^SKEW'), 0.08, True), 
+            ("Dolar Endeksi (DX-Y.NYB)", fetch_yf_data('DX-Y.NYB'), 0.05, True), 
         ]
 
     for name, data_series, weight, invert in metrics:
@@ -178,7 +175,7 @@ with col1:
         mode = "gauge+number",
         value = final_trend_score,
         domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': f"{asset}<br>Tam Sürüm Makro Trend Skoru", 'font': {'size': 20}},
+        title = {'text': f"{asset}<br>Makro Trend Skoru", 'font': {'size': 20}},
         gauge = {
             'axis': {'range': [-100, 100], 'tickwidth': 1},
             'bar': {'color': "black"},
@@ -199,8 +196,10 @@ with col2:
     st.dataframe(df_results, use_container_width=True)
     
     st.markdown("""
-    **Kurumsal Rehber:**
-    * **+60 / +100 :** Güçlü Kurumsal Boğa Trendi (Alıcıların Tam Hakimiyeti)
-    * **-20 / +20 :** Nötr / Konsolidasyon (Yön Arayışı)
-    * **-60 / -100 :** Güçlü Kurumsal Ayı Trendi (Makro Şartlar Olumsuz)
+    **Kurumsal Skor Rehberi:**
+    * **+60 ile +100 : Güçlü Boğa Trendi** (Makro şartlar kusursuz, alıcı hakimiyeti)
+    * **+20 ile +60 : Zayıf Boğa Trendi** (Eğilim yukarı ancak bazı makro riskler var)
+    * **-20 ile +20 : Nötr / Konsolidasyon** (Belirgin bir makro trend yok, yatay piyasa)
+    * **-20 ile -60 : Zayıf Ayı Trendi** (Eğilim aşağı, temeller zayıf, fiyat düzeltmesi riski)
+    * **-60 ile -100 : Güçlü Ayı Trendi** (Makro şartlar tamamen olumsuz, sert düşüş riski)
     """)
