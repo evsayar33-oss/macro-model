@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- 1. SAYFA VE API AYARLARI ---
-st.set_page_config(page_title="Makro Trend v6.1 (Institutional Fed Grade)", layout="wide")
+st.set_page_config(page_title="Makro Trend v6.2 (Institutional Fed Grade)", layout="wide")
 
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
@@ -213,11 +213,19 @@ def process_indicator(data_series, invert=False, is_rate=False):
     return z_score, display_val
 
 # --- 6. ARAYÜZ VE UYGULAMA ---
-st.title("🏛️ KÜRESEL MAKRO & SWING MODELİ (v6.1 - INSTITUTIONAL FED GRADE)")
-st.markdown("**Küresel Dolar Likiditesi (Fed+ECB), Hazine Süre Riski (30Y) ve Şalter Korumalı Risk Motoru**")
+st.title("🏛️ KÜRESEL MAKRO & SWING MODELİ (v6.2 - INSTITUTIONAL FED GRADE)")
+st.markdown("**Küresel Dolar Likiditesi (Fed+ECB), Hazine Süre Riski (30Y) ve 7 Varlıklı Risk Motoru**")
 
 st.sidebar.header("VARLIK VE RİSK YÖNETİMİ")
-asset = st.sidebar.radio("Analiz Edilecek Varlık:", ("Altın (XAU)", "Gümüş (XAG)", "Nasdaq 100 (NQ)", "S&P 500 (SPX)"))
+asset = st.sidebar.radio("Analiz Edilecek Varlık:", (
+    "Altın (XAU)", 
+    "Gümüş (XAG)", 
+    "Nasdaq 100 (NQ)", 
+    "S&P 500 (SPX)",
+    "Kripto (BTC)",
+    "Ham Petrol (WTI)",
+    "Bakır (HG)"
+))
 
 target_vol_input = st.sidebar.slider("Hedef Portföy Volatilitesi (% Target Vol):", min_value=8.0, max_value=25.0, value=12.0, step=1.0)
 
@@ -243,13 +251,13 @@ if circuit_triggered:
 indicators_data = []
 total_score = 0
 
-with st.spinner(f"{asset} için Küresel Likidite ve 30Y Hazine Süre Riskleri Hesaplanıyor..."):
+with st.spinner(f"{asset} için Küresel Likidite ve Makro Faktörler Hesaplanıyor..."):
     # Format: (Gösterge Adı, Data, Taban Ağırlık, Kategori, TersMi, FaizMi)
     if asset == "Altın (XAU)":
         metrics = [
             ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.11, "FAIZ_BEKLENTI", True, True),
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.09, "FAIZ_BEKLENTI", True, True),
-            ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.08, "FAIZ_BEKLENTI", True, True), # YENİ: 30Y Getiri Sinyali
+            ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.08, "FAIZ_BEKLENTI", True, True),
             ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.10, "ENFLASYON", False, True), 
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.10, "LIKIDITE", False, False), 
             ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.06, "LIKIDITE", False, False),
@@ -266,7 +274,7 @@ with st.spinner(f"{asset} için Küresel Likidite ve 30Y Hazine Süre Riskleri H
             ("Endüstriyel Metaller Sepeti (DBB)", fetch_yf_data('DBB'), 0.11, "BUYUME_SANAYI", False, False),
             ("Gümüş Momentum Trendi (SI=F)", fetch_yf_data('SI=F'), 0.11, "BUYUME_SANAYI", False, False),
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.09, "FAIZ_BEKLENTI", True, True),
-            ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.07, "FAIZ_BEKLENTI", True, True), # YENİ
+            ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.07, "FAIZ_BEKLENTI", True, True),
             ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.10, "ENFLASYON", False, True), 
             ("Bakır / Altın Büyüme Rasyosu", fetch_yf_data('HG=F') / fetch_yf_data('GC=F'), 0.09, "BUYUME_SANAYI", False, False),
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.09, "LIKIDITE", False, False), 
@@ -281,7 +289,7 @@ with st.spinner(f"{asset} için Küresel Likidite ve 30Y Hazine Süre Riskleri H
         metrics = [
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.12, "LIKIDITE", False, False), 
             ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.07, "LIKIDITE", False, False),
-            ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.09, "FAIZ_BEKLENTI", True, True), # YENİ (Teknoloji değerlemesini en çok vuran güç)
+            ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.09, "FAIZ_BEKLENTI", True, True),
             ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.10, "RISK_STRES", True, False),
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.09, "FAIZ_BEKLENTI", True, True),
             ("Ticari Banka Rezervleri (WRESBAL)", fetch_fred_data('WRESBAL'), 0.09, "LIKIDITE", False, False),
@@ -293,12 +301,11 @@ with st.spinner(f"{asset} için Küresel Likidite ve 30Y Hazine Süre Riskleri H
             ("Yüksek Getirili Kredi Stresi (HY OAS)", fetch_fred_data('BAMLH0A0HYM2'), 0.05, "RISK_STRES", True, True),
             ("SKEW Siyah Kuğu Kuyruk Riski", fetch_yf_data('^SKEW'), 0.04, "RISK_STRES", True, False),
         ]
-    else:
-        # S&P 500 (SPX) MODELİ
+    elif asset == "S&P 500 (SPX)":
         metrics = [
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.12, "LIKIDITE", False, False), 
             ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.07, "LIKIDITE", False, False),
-            ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.08, "FAIZ_BEKLENTI", True, True), # YENİ
+            ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.08, "FAIZ_BEKLENTI", True, True),
             ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.10, "RISK_STRES", True, False),
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.09, "FAIZ_BEKLENTI", True, True),
             ("Ticari Banka Rezervleri (WRESBAL)", fetch_fred_data('WRESBAL'), 0.09, "LIKIDITE", False, False),
@@ -309,6 +316,52 @@ with st.spinner(f"{asset} için Küresel Likidite ve 30Y Hazine Süre Riskleri H
             ("MOVE Endeksi (Tahvil Volatilitesi)", fetch_yf_data('^MOVE'), 0.06, "RISK_STRES", True, False),
             ("Bakır / Altın Rasyosu (Global Büyüme)", fetch_yf_data('HG=F') / fetch_yf_data('GC=F'), 0.05, "BUYUME_SANAYI", False, False),
             ("Yen Carry Trade (USD/JPY)", fetch_yf_data('JPY=X'), 0.04, "LIKIDITE", False, False),
+        ]
+    elif asset == "Kripto (BTC)":
+        metrics = [
+            ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.14, "LIKIDITE", False, False), # 1 Numaralı Yakıt
+            ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.09, "LIKIDITE", False, False),
+            ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.10, "FAIZ_BEKLENTI", True, True),
+            ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.09, "FAIZ_BEKLENTI", True, True),
+            ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.09, "RISK_STRES", True, False),
+            ("Dolar Endeksi Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.09, "LIKIDITE", True, False),
+            ("Teknoloji / Risk İştahı (QQQ)", fetch_yf_data('QQQ'), 0.08, "BUYUME_SANAYI", False, False),
+            ("Ticari Banka Rezervleri (WRESBAL)", fetch_fred_data('WRESBAL'), 0.08, "LIKIDITE", False, False),
+            ("VIX Volatilite Eğilimi", fetch_yf_data('^VIX'), 0.07, "RISK_STRES", True, False),
+            ("Yüksek Getirili Kredi Stresi (HY OAS)", fetch_fred_data('BAMLH0A0HYM2'), 0.06, "RISK_STRES", True, True),
+            ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.05, "FAIZ_BEKLENTI", True, True),
+            ("SKEW Siyah Kuğu Kuyruk Riski", fetch_yf_data('^SKEW'), 0.05, "RISK_STRES", True, False),
+        ]
+    elif asset == "Ham Petrol (WTI)":
+        metrics = [
+            ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.12, "ENFLASYON", False, True), # Enflasyonun Çekirdeği
+            ("Bakır / Altın Büyüme Rasyosu", fetch_yf_data('HG=F') / fetch_yf_data('GC=F'), 0.11, "BUYUME_SANAYI", False, False),
+            ("Dolar Endeksi Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.11, "LIKIDITE", True, False),
+            ("Endüstriyel Metaller Sepeti (DBB)", fetch_yf_data('DBB'), 0.10, "BUYUME_SANAYI", False, False),
+            ("Çin Piyasası İvmesi (MCHI)", fetch_yf_data('MCHI'), 0.10, "BUYUME_SANAYI", False, False), # Dünyanın En Büyük İthalatçısı
+            ("5y5y Forward Enflasyon Çıpası (T5YIFR)", fetch_fred_data('T5YIFR'), 0.09, "ENFLASYON", False, True),
+            ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.08, "LIKIDITE", False, False),
+            ("Getiri Eğrisi Eğim İvmesi (10Y-2Y)", fetch_fred_data('T10Y2Y'), 0.08, "FAIZ_BEKLENTI", False, True),
+            ("MOVE Endeksi (Tahvil/Jeopolitik Risk)", fetch_yf_data('^MOVE'), 0.06, "RISK_STRES", False, False),
+            ("Yüksek Getirili Kredi Stresi (HY OAS)", fetch_fred_data('BAMLH0A0HYM2'), 0.05, "RISK_STRES", True, True),
+            ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.05, "RISK_STRES", True, False),
+            ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.05, "LIKIDITE", False, False),
+        ]
+    else:
+        # BAKIR (HG - DOCTOR COPPER)
+        metrics = [
+            ("Çin Piyasası İvmesi (MCHI)", fetch_yf_data('MCHI'), 0.13, "BUYUME_SANAYI", False, False), # Global Bakır Talebinin %50'si
+            ("Endüstriyel Metaller Sepeti (DBB)", fetch_yf_data('DBB'), 0.12, "BUYUME_SANAYI", False, False),
+            ("Bakır / Altın Büyüme Rasyosu", fetch_yf_data('HG=F') / fetch_yf_data('GC=F'), 0.11, "BUYUME_SANAYI", False, False),
+            ("Dolar Endeksi Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.10, "LIKIDITE", True, False),
+            ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.09, "ENFLASYON", False, True),
+            ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.09, "LIKIDITE", False, False),
+            ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.08, "FAIZ_BEKLENTI", True, True),
+            ("Getiri Eğrisi Eğim İvmesi (10Y-2Y)", fetch_fred_data('T10Y2Y'), 0.08, "FAIZ_BEKLENTI", False, True),
+            ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.06, "RISK_STRES", True, False),
+            ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.05, "LIKIDITE", False, False),
+            ("Yüksek Getirili Kredi Stresi (HY OAS)", fetch_fred_data('BAMLH0A0HYM2'), 0.05, "RISK_STRES", True, True),
+            ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.04, "FAIZ_BEKLENTI", True, True),
         ]
 
     # --- DİNAMİK AĞIRLIKLANDIRMA HESABI ---
@@ -336,7 +389,7 @@ with st.spinner(f"{asset} için Küresel Likidite ve 30Y Hazine Süre Riskleri H
             display_str = "Hesaplanıyor / Veri Yok"
         elif is_rate:
             display_str = f"%{val:.2f}"
-        elif abs(val) < 0.05: # Çok küçük rasyolar (Bakır/Altın vb.) için hassas format
+        elif abs(val) < 0.05: 
             display_str = f"{val:.4f}"
         else:
             display_str = f"{val:.2f}" if abs(val) < 1000 else f"{val:,.0f}"
@@ -360,7 +413,10 @@ ticker_asset_map = {
     "Altın (XAU)": "GC=F",
     "Gümüş (XAG)": "SI=F",
     "Nasdaq 100 (NQ)": "QQQ",
-    "S&P 500 (SPX)": "SPY"
+    "S&P 500 (SPX)": "SPY",
+    "Kripto (BTC)": "BTC-USD",
+    "Ham Petrol (WTI)": "CL=F",
+    "Bakır (HG)": "HG=F"
 }
 asset_prices = fetch_yf_data(ticker_asset_map[asset])
 if len(asset_prices) > 25:
@@ -417,4 +473,5 @@ with col2:
     * **30Y Hazine Süre Riski:** Uzun vadeli faizlerin ivmesi Hazine ihraç baskısını ölçer ve değerlemeleri baskılar.
     * **Pozisyon Boyutlandırma:** Model, trend skorunu varlığın 20 günlük gerçekleşen volatilitesine göre ölçekler (*Volatility Targeting*).
     * **Sistemik Risk Şalteri:** Tahvil/Kredi stresi patladığında boğa skorları kırpılır ve sistem nakit ağırlıklı savunmaya geçer.
+    * **7 Varlık Kapsamı:** Altın, Gümüş, Nasdaq, S&P 500, Kripto (BTC), Ham Petrol ve Bakır için özel makro faktör setleri devrededir.
     """)
