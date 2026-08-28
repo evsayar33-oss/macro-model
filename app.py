@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- 1. SAYFA VE API AYARLARI ---
-st.set_page_config(page_title="Makro Trend v6.3 (Institutional Fed Grade)", layout="wide")
+st.set_page_config(page_title="Makro Trend v6.4 (Institutional Fed Grade)", layout="wide")
 
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
@@ -17,7 +17,7 @@ except:
     st.stop()
 
 # --- 2. GELİŞMİŞ MERKEZ BANKASI & KÜRESEL LİKİDİTE MOTORU ---
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800) # Yenileme hızı 30 dakikaya çekildi (Yüksek Frekans)
 def fetch_fred_data(series_id, days=2500):
     end_date = datetime.today()
     start_date = end_date - timedelta(days=days)
@@ -28,7 +28,7 @@ def fetch_fred_data(series_id, days=2500):
     except:
         return pd.Series(dtype=float)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800)
 def fetch_yf_data(ticker, days=2500):
     try:
         data = yf.download(ticker, period=f"{days}d", progress=False)
@@ -49,7 +49,7 @@ def fetch_yf_data(ticker, days=2500):
         return pd.Series(dtype=float)
 
 # KÜRESEL NET DOLAR LİKİDİTESİ: (Fed Bilançosu - TGA - RRP) + (ECB Bilançosu in USD)
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800)
 def fetch_global_net_liquidity(days=2500):
     try:
         walcl = fetch_fred_data('WALCL', days)       # Fed Bilançosu (Milyon $)
@@ -79,8 +79,8 @@ def fetch_global_net_liquidity(days=2500):
 
 # --- 3. SIFIR GECİKMELİ (ZERO-LAG) PİYASA REJİM MOTORU ---
 def get_realtime_macro_regime():
-    t10yie = fetch_fred_data('T10YIE') # 10Y Breakeven Enflasyon Oranı
-    fwd_inf = fetch_fred_data('T5YIFR') # 5y5y Forward Enflasyon Çıpası
+    t10yie = fetch_fred_data('T10YIE') 
+    fwd_inf = fetch_fred_data('T5YIFR') 
     unrate = fetch_fred_data('UNRATE')
     consumer_exp = fetch_fred_data('UMCSENT') 
     
@@ -108,7 +108,7 @@ def get_realtime_macro_regime():
         mult = 1.4
         return "DEFLASYON", "DEFLASYONİST DARALMA (Çöken Enflasyon, Resesyon Baskısı)", mult
 
-# --- 4. SİSTEMİK RİSK ŞALTERİ (CIRCUIT BREAKER) ---
+# --- 4. SİSTEMİK RİSK VE ŞOK ŞALTERİ (CIRCUIT BREAKER) ---
 def check_systemic_circuit_breaker():
     move = fetch_yf_data('^MOVE')
     hy_oas = fetch_fred_data('BAMLH0A0HYM2') 
@@ -140,44 +140,14 @@ def check_systemic_circuit_breaker():
 
 # Rejim Katsayı Matrisi
 REGIME_CATEGORY_WEIGHTS = {
-    "GOLDILOCKS": {
-        "LIKIDITE": 1.4,
-        "BUYUME_SANAYI": 1.4,
-        "FAIZ_BEKLENTI": 1.1,
-        "ENFLASYON": 0.6,
-        "RISK_STRES": 0.6
-    },
-    "REFLASYON": {
-        "LIKIDITE": 1.2,
-        "BUYUME_SANAYI": 1.3,
-        "ENFLASYON": 1.4,
-        "FAIZ_BEKLENTI": 1.0,
-        "RISK_STRES": 0.7
-    },
-    "STAGFLASYON": {
-        "ENFLASYON": 1.8,
-        "RISK_STRES": 1.6,
-        "FAIZ_BEKLENTI": 1.2,
-        "LIKIDITE": 0.7,
-        "BUYUME_SANAYI": 0.4
-    },
-    "DEFLASYON": {
-        "RISK_STRES": 1.7,
-        "FAIZ_BEKLENTI": 1.4,
-        "LIKIDITE": 1.2,
-        "BUYUME_SANAYI": 0.4,
-        "ENFLASYON": 0.4
-    },
-    "NOTR": {
-        "LIKIDITE": 1.0,
-        "BUYUME_SANAYI": 1.0,
-        "FAIZ_BEKLENTI": 1.0,
-        "ENFLASYON": 1.0,
-        "RISK_STRES": 1.0
-    }
+    "GOLDILOCKS": {"LIKIDITE": 1.4, "BUYUME_SANAYI": 1.4, "FAIZ_BEKLENTI": 1.1, "ENFLASYON": 0.6, "RISK_STRES": 0.6},
+    "REFLASYON": {"LIKIDITE": 1.2, "BUYUME_SANAYI": 1.3, "ENFLASYON": 1.4, "FAIZ_BEKLENTI": 1.0, "RISK_STRES": 0.7},
+    "STAGFLASYON": {"ENFLASYON": 1.8, "RISK_STRES": 1.6, "FAIZ_BEKLENTI": 1.2, "LIKIDITE": 0.7, "BUYUME_SANAYI": 0.4},
+    "DEFLASYON": {"RISK_STRES": 1.7, "FAIZ_BEKLENTI": 1.4, "LIKIDITE": 1.2, "BUYUME_SANAYI": 0.4, "ENFLASYON": 0.4},
+    "NOTR": {"LIKIDITE": 1.0, "BUYUME_SANAYI": 1.0, "FAIZ_BEKLENTI": 1.0, "ENFLASYON": 1.0, "RISK_STRES": 1.0}
 }
 
-# --- 5. Z-SKOR MOTORU ---
+# --- 5. ÇİFT HIZLI (DUAL-SPEED) Z-SKOR VE ŞOK MOTORU ---
 def process_indicator(data_series, invert=False, is_rate=False):
     if isinstance(data_series, pd.DataFrame):
         data_series = data_series.iloc[:, 0]
@@ -192,18 +162,37 @@ def process_indicator(data_series, invert=False, is_rate=False):
         momentum = data_series.diff(60).dropna()
         if len(momentum) < 200:
             return 0.0, float(data_series.iloc[-1])
-        ema_60 = momentum.ewm(span=60, adjust=False).mean()
+        ema_trend = momentum.ewm(span=60, adjust=False).mean()
+        # Hızlı Şok Sensörü (5 Günlük Hazine/Faiz Delta Sıçraması)
+        fast_impulse = data_series.diff(5).dropna().iloc[-1]
     else:
-        ema_60 = data_series.ewm(span=60, adjust=False).mean()
+        ema_trend = data_series.ewm(span=60, adjust=False).mean()
+        # Hızlı Şok Sensörü (3 Günlük Jeopolitik Fiyat Sıçraması %)
+        fast_impulse = (data_series.pct_change(3).dropna().iloc[-1]) * 100
         
-    mean_252 = ema_60.rolling(window=252).mean()
-    std_252 = ema_60.rolling(window=252).std()
+    mean_252 = ema_trend.rolling(window=252).mean()
+    std_252 = ema_trend.rolling(window=252).std()
     
-    current_val = float(ema_60.iloc[-1])
+    current_val = float(ema_trend.iloc[-1])
     mean_val = float(mean_252.iloc[-1])
     std_val = float(std_252.iloc[-1])
     
-    z_score = (current_val - mean_val) / (std_val + 1e-5)
+    base_z_score = (current_val - mean_val) / (std_val + 1e-5)
+    
+    # ŞOK KATALİZÖRÜ: Eğer 3 günlük ani sıçrama çok sertse z-skora anında ivme kazandır
+    shock_bonus = 0.0
+    if not is_rate:
+        if fast_impulse > 6.0:  # 3 günde %6'dan büyük ani şok sıçraması (Savaş vb.)
+            shock_bonus = 0.75
+        elif fast_impulse < -6.0:
+            shock_bonus = -0.75
+    else:
+        if fast_impulse > 0.25: # Faizlerde 5 günde 25 bps üstü sert sıçrama
+            shock_bonus = 0.50
+        elif fast_impulse < -0.25:
+            shock_bonus = -0.50
+
+    z_score = base_z_score + shock_bonus
     
     if invert:
         z_score = -z_score
@@ -213,8 +202,8 @@ def process_indicator(data_series, invert=False, is_rate=False):
     return z_score, display_val
 
 # --- 6. ARAYÜZ VE UYGULAMA ---
-st.title("🏛️ KÜRESEL MAKRO & SWING MODELİ (v6.3 - INSTITUTIONAL FED GRADE)")
-st.markdown("**Küresel Dolar Likiditesi (Fed+ECB), Hazine Süre Riski (30Y) ve 8 Varlıklı Portföy Motoru**")
+st.title("🏛️ KÜRESEL MAKRO & SWING MODELİ (v6.4 - DUAL-SPEED FED GRADE)")
+st.markdown("**Çift Hızlı Şok Sensörü (Dual-Speed), Yüksek Frekanslı Hazine İvmesi ve 8 Varlık Koruması**")
 
 st.sidebar.header("VARLIK VE RİSK YÖNETİMİ")
 asset = st.sidebar.radio("Analiz Edilecek Varlık:", (
@@ -252,8 +241,7 @@ if circuit_triggered:
 indicators_data = []
 total_score = 0
 
-with st.spinner(f"{asset} için Küresel Likidite ve Makro Faktörler Hesaplanıyor..."):
-    # Format: (Gösterge Adı, Data, Taban Ağırlık, Kategori, TersMi, FaizMi)
+with st.spinner(f"{asset} için Çift Hızlı Şok Sensörleri ve Hazine İvmeleri Hesaplanıyor..."):
     if asset == "Altın (XAU)":
         metrics = [
             ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.11, "FAIZ_BEKLENTI", True, True),
@@ -261,7 +249,7 @@ with st.spinner(f"{asset} için Küresel Likidite ve Makro Faktörler Hesaplanı
             ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.08, "FAIZ_BEKLENTI", True, True),
             ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.10, "ENFLASYON", False, True), 
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.10, "LIKIDITE", False, False), 
-            ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.06, "LIKIDITE", False, False),
+            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.06, "LIKIDITE", False, False), # YENİ: 5 Günlük Hızlı Hazine Sinyali
             ("MOVE Endeksi (Tahvil Paniği)", fetch_yf_data('^MOVE'), 0.09, "RISK_STRES", False, False),
             ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.08, "RISK_STRES", False, False),
             ("Getiri Eğrisi Eğim İvmesi (10Y-2Y)", fetch_fred_data('T10Y2Y'), 0.08, "FAIZ_BEKLENTI", False, True),
@@ -279,7 +267,7 @@ with st.spinner(f"{asset} için Küresel Likidite ve Makro Faktörler Hesaplanı
             ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.10, "ENFLASYON", False, True), 
             ("Bakır / Altın Büyüme Rasyosu", fetch_yf_data('HG=F') / fetch_yf_data('GC=F'), 0.09, "BUYUME_SANAYI", False, False),
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.09, "LIKIDITE", False, False), 
-            ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.05, "LIKIDITE", False, False),
+            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.05, "LIKIDITE", False, False),
             ("Altın / Gümüş Rasyosu", fetch_yf_data('GC=F') / fetch_yf_data('SI=F'), 0.08, "BUYUME_SANAYI", True, False),
             ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.08, "RISK_STRES", True, False),
             ("Çin Piyasası İvmesi (MCHI)", fetch_yf_data('MCHI'), 0.06, "BUYUME_SANAYI", False, False),
@@ -289,7 +277,7 @@ with st.spinner(f"{asset} için Küresel Likidite ve Makro Faktörler Hesaplanı
     elif asset == "Nasdaq 100 (NQ)":
         metrics = [
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.12, "LIKIDITE", False, False), 
-            ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.07, "LIKIDITE", False, False),
+            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.07, "LIKIDITE", False, False),
             ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.09, "FAIZ_BEKLENTI", True, True),
             ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.10, "RISK_STRES", True, False),
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.09, "FAIZ_BEKLENTI", True, True),
@@ -305,7 +293,7 @@ with st.spinner(f"{asset} için Küresel Likidite ve Makro Faktörler Hesaplanı
     elif asset == "S&P 500 (SPX)":
         metrics = [
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.12, "LIKIDITE", False, False), 
-            ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.07, "LIKIDITE", False, False),
+            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.07, "LIKIDITE", False, False),
             ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.08, "FAIZ_BEKLENTI", True, True),
             ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.10, "RISK_STRES", True, False),
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.09, "FAIZ_BEKLENTI", True, True),
@@ -321,7 +309,7 @@ with st.spinner(f"{asset} için Küresel Likidite ve Makro Faktörler Hesaplanı
     elif asset == "Kripto (BTC)":
         metrics = [
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.14, "LIKIDITE", False, False),
-            ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.09, "LIKIDITE", False, False),
+            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.09, "LIKIDITE", False, False),
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.10, "FAIZ_BEKLENTI", True, True),
             ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.09, "FAIZ_BEKLENTI", True, True),
             ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.09, "RISK_STRES", True, False),
@@ -346,7 +334,7 @@ with st.spinner(f"{asset} için Küresel Likidite ve Makro Faktörler Hesaplanı
             ("MOVE Endeksi (Tahvil/Jeopolitik Risk)", fetch_yf_data('^MOVE'), 0.06, "RISK_STRES", False, False),
             ("Yüksek Getirili Kredi Stresi (HY OAS)", fetch_fred_data('BAMLH0A0HYM2'), 0.05, "RISK_STRES", True, True),
             ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.05, "RISK_STRES", True, False),
-            ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.05, "LIKIDITE", False, False),
+            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.05, "LIKIDITE", False, False),
         ]
     elif asset == "Bakır (HG)":
         metrics = [
@@ -359,25 +347,24 @@ with st.spinner(f"{asset} için Küresel Likidite ve Makro Faktörler Hesaplanı
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.08, "FAIZ_BEKLENTI", True, True),
             ("Getiri Eğrisi Eğim İvmesi (10Y-2Y)", fetch_fred_data('T10Y2Y'), 0.08, "FAIZ_BEKLENTI", False, True),
             ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.06, "RISK_STRES", True, False),
-            ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.05, "LIKIDITE", False, False),
+            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.05, "LIKIDITE", False, False),
             ("Yüksek Getirili Kredi Stresi (HY OAS)", fetch_fred_data('BAMLH0A0HYM2'), 0.05, "RISK_STRES", True, True),
             ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.04, "FAIZ_BEKLENTI", True, True),
         ]
     else:
-        # ABD TAHVİLİ / FAİZ (TLT - 20+ YEAR TREASURY BOND)
         metrics = [
-            ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.13, "FAIZ_BEKLENTI", True, True), # Düşen reel getiri = Tahvil rallisi
+            ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.13, "FAIZ_BEKLENTI", True, True),
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.12, "FAIZ_BEKLENTI", True, True),
             ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.11, "FAIZ_BEKLENTI", True, True),
-            ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.11, "ENFLASYON", True, True), # Düşen enflasyon tahvil dostudur
-            ("MOVE Endeksi (Tahvil Volatilitesi)", fetch_yf_data('^MOVE'), 0.10, "RISK_STRES", True, False), # Düşük panik = Tahvile güven
+            ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.11, "ENFLASYON", True, True),
+            ("MOVE Endeksi (Tahvil Volatilitesi)", fetch_yf_data('^MOVE'), 0.10, "RISK_STRES", True, False),
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.09, "LIKIDITE", False, False),
             ("Getiri Eğrisi Eğim İvmesi (10Y-2Y)", fetch_fred_data('T10Y2Y'), 0.09, "FAIZ_BEKLENTI", True, True),
-            ("Yüksek Getirili Kredi Stresi (HY OAS)", fetch_fred_data('BAMLH0A0HYM2'), 0.08, "RISK_STRES", False, True), # Krizde güvenli liman tahvil alımı
+            ("Yüksek Getirili Kredi Stresi (HY OAS)", fetch_fred_data('BAMLH0A0HYM2'), 0.08, "RISK_STRES", False, True),
             ("Dolar Endeksi Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.06, "LIKIDITE", False, False),
             ("VIX Volatilite Eğilimi", fetch_yf_data('^VIX'), 0.06, "RISK_STRES", False, False),
             ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.05, "RISK_STRES", False, False),
-            ("Likidite Gelecek İvmesi (30G Hız)", fetch_global_net_liquidity().diff(20), 0.05, "LIKIDITE", False, False),
+            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.05, "LIKIDITE", False, False),
         ]
 
     # --- DİNAMİK AĞIRLIKLANDIRMA HESABI ---
@@ -419,7 +406,6 @@ with st.spinner(f"{asset} için Küresel Likidite ve Makro Faktörler Hesaplanı
             "Modele Net Katkı": round(contribution, 3)
         })
 
-# Şalter aktifse pozitif skorları kırp
 final_trend_score = max(-100, min(100, total_score * 25))
 if circuit_triggered and final_trend_score > 0:
     final_trend_score = final_trend_score * 0.35 
@@ -487,8 +473,8 @@ with col2:
     
     st.markdown("""
     **Kurumsal Risk Yönetimi Rehberi:**
-    * **30Y Hazine Süre Riski:** Uzun vadeli faizlerin ivmesi Hazine ihraç baskısını ölçer ve değerlemeleri baskılar.
-    * **Pozisyon Boyutlandırma:** Model, trend skorunu varlığın 20 günlük gerçekleşen volatilitesine göre ölçekler (*Volatility Targeting*).
+    * **Çift Hızlı Şok Sensörü:** Jeopolitik / Siyah Kuğu şoklarında (3 günlük >%6 hareket) 60 günlük ortalama beklenmeden anında tepki verilir.
+    * **Hızlı Likidite İvmesi:** Hazine'nin nakit çekişleri ve borçlanma tavanı baskısı 5 günlük türevle anlık yakalanır.
     * **Sistemik Risk Şalteri:** Tahvil/Kredi stresi patladığında boğa skorları kırpılır ve sistem nakit ağırlıklı savunmaya geçer.
     * **8 Varlık Kapsamı:** Altın, Gümüş, Nasdaq, S&P 500, Kripto (BTC), Ham Petrol, Bakır ve ABD Tahvili (TLT).
     """)
