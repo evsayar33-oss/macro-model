@@ -2,12 +2,13 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import requests
 from fredapi import Fred
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- 1. SAYFA VE API AYARLARI ---
-st.set_page_config(page_title="Makro Trend v6.4 (Institutional Fed Grade)", layout="wide")
+st.set_page_config(page_title="Makro Trend v6.5 (Institutional Fed Grade)", layout="wide")
 
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
@@ -16,8 +17,8 @@ except:
     st.error("Lütfen Streamlit Cloud ayarlarına FRED_API_KEY eklediğinizden emin olun!")
     st.stop()
 
-# --- 2. GELİŞMİŞ MERKEZ BANKASI & KÜRESEL LİKİDİTE MOTORU ---
-@st.cache_data(ttl=1800) # Yenileme hızı 30 dakikaya çekildi (Yüksek Frekans)
+# --- 2. GELİŞMİŞ MERKEZ BANKASI, KRİPTO & KÜRESEL LİKİDİTE MOTORU ---
+@st.cache_data(ttl=1800)
 def fetch_fred_data(series_id, days=2500):
     end_date = datetime.today()
     start_date = end_date - timedelta(days=days)
@@ -48,15 +49,57 @@ def fetch_yf_data(ticker, days=2500):
     except:
         return pd.Series(dtype=float)
 
+# DEFİLLAMA STABLECOIN KÜRESEL ARZ MOTORU (KRİPTO M2)
+@st.cache_data(ttl=1800)
+def fetch_defillama_stablecoins():
+    try:
+        url = "https://stablecoins.llama.fi/stablecoincharts/all"
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            records = []
+            for item in data:
+                ts = int(item.get('date', 0))
+                mcap = float(item.get('totalCirculating', {}).get('peggedUSD', 0))
+                if ts > 0 and mcap > 0:
+                    records.append({'date': pd.to_datetime(ts, unit='s'), 'mcap': mcap})
+            if records:
+                df = pd.DataFrame(records).set_index('date').sort_index()
+                return df['mcap'].resample('B').ffill().dropna()
+    except:
+        pass
+    return pd.Series(dtype=float)
+
+# ALTERNATIVE.ME KRİPTO KORKU & AÇGÖZLÜLÜK ENDEKSİ
+@st.cache_data(ttl=1800)
+def fetch_crypto_fear_greed():
+    try:
+        url = "https://api.alternative.me/fng/?limit=2000&format=json"
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            data = r.json().get('data', [])
+            records = []
+            for item in data:
+                ts = int(item.get('timestamp', 0))
+                val = float(item.get('value', 50))
+                if ts > 0:
+                    records.append({'date': pd.to_datetime(ts, unit='s'), 'val': val})
+            if records:
+                df = pd.DataFrame(records).set_index('date').sort_index()
+                return df['val'].resample('B').ffill().dropna()
+    except:
+        pass
+    return pd.Series(dtype=float)
+
 # KÜRESEL NET DOLAR LİKİDİTESİ: (Fed Bilançosu - TGA - RRP) + (ECB Bilançosu in USD)
 @st.cache_data(ttl=1800)
 def fetch_global_net_liquidity(days=2500):
     try:
-        walcl = fetch_fred_data('WALCL', days)       # Fed Bilançosu (Milyon $)
-        tga = fetch_fred_data('WTREGEN', days)       # Hazine Hesabı (Milyon $)
-        rrp = fetch_fred_data('RRPONTSYD', days)     # Ters Repo (Milyar $) -> Milyon
-        ecb = fetch_fred_data('ECBASSETSW', days)   # ECB Bilançosu (Milyon EUR)
-        eurusd = fetch_yf_data('EURUSD=X', days)     # EUR/USD Paritesi
+        walcl = fetch_fred_data('WALCL', days)       
+        tga = fetch_fred_data('WTREGEN', days)       
+        rrp = fetch_fred_data('RRPONTSYD', days)     
+        ecb = fetch_fred_data('ECBASSETSW', days)   
+        eurusd = fetch_yf_data('EURUSD=X', days)     
         
         df = pd.DataFrame({
             'w': walcl, 
@@ -163,11 +206,9 @@ def process_indicator(data_series, invert=False, is_rate=False):
         if len(momentum) < 200:
             return 0.0, float(data_series.iloc[-1])
         ema_trend = momentum.ewm(span=60, adjust=False).mean()
-        # Hızlı Şok Sensörü (5 Günlük Hazine/Faiz Delta Sıçraması)
         fast_impulse = data_series.diff(5).dropna().iloc[-1]
     else:
         ema_trend = data_series.ewm(span=60, adjust=False).mean()
-        # Hızlı Şok Sensörü (3 Günlük Jeopolitik Fiyat Sıçraması %)
         fast_impulse = (data_series.pct_change(3).dropna().iloc[-1]) * 100
         
     mean_252 = ema_trend.rolling(window=252).mean()
@@ -179,15 +220,14 @@ def process_indicator(data_series, invert=False, is_rate=False):
     
     base_z_score = (current_val - mean_val) / (std_val + 1e-5)
     
-    # ŞOK KATALİZÖRÜ: Eğer 3 günlük ani sıçrama çok sertse z-skora anında ivme kazandır
     shock_bonus = 0.0
     if not is_rate:
-        if fast_impulse > 6.0:  # 3 günde %6'dan büyük ani şok sıçraması (Savaş vb.)
+        if fast_impulse > 6.0:  
             shock_bonus = 0.75
         elif fast_impulse < -6.0:
             shock_bonus = -0.75
     else:
-        if fast_impulse > 0.25: # Faizlerde 5 günde 25 bps üstü sert sıçrama
+        if fast_impulse > 0.25: 
             shock_bonus = 0.50
         elif fast_impulse < -0.25:
             shock_bonus = -0.50
@@ -202,8 +242,8 @@ def process_indicator(data_series, invert=False, is_rate=False):
     return z_score, display_val
 
 # --- 6. ARAYÜZ VE UYGULAMA ---
-st.title("🏛️ KÜRESEL MAKRO & SWING MODELİ (v6.4 - DUAL-SPEED FED GRADE)")
-st.markdown("**Çift Hızlı Şok Sensörü (Dual-Speed), Yüksek Frekanslı Hazine İvmesi ve 8 Varlık Koruması**")
+st.title("🏛️ KÜRESEL MAKRO & SWING MODELİ (v6.5 - INSTITUTIONAL FED GRADE)")
+st.markdown("**DefiLlama Stablecoin M2 Arzı, Fear & Greed Sentimenti ve 8 Varlıklı Portföy Motoru**")
 
 st.sidebar.header("VARLIK VE RİSK YÖNETİMİ")
 asset = st.sidebar.radio("Analiz Edilecek Varlık:", (
@@ -241,7 +281,7 @@ if circuit_triggered:
 indicators_data = []
 total_score = 0
 
-with st.spinner(f"{asset} için Çift Hızlı Şok Sensörleri ve Hazine İvmeleri Hesaplanıyor..."):
+with st.spinner(f"{asset} için Veriler ve Faktör Seti Hesaplanıyor..."):
     if asset == "Altın (XAU)":
         metrics = [
             ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.11, "FAIZ_BEKLENTI", True, True),
@@ -249,7 +289,7 @@ with st.spinner(f"{asset} için Çift Hızlı Şok Sensörleri ve Hazine İvmele
             ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.08, "FAIZ_BEKLENTI", True, True),
             ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.10, "ENFLASYON", False, True), 
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.10, "LIKIDITE", False, False), 
-            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.06, "LIKIDITE", False, False), # YENİ: 5 Günlük Hızlı Hazine Sinyali
+            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.06, "LIKIDITE", False, False),
             ("MOVE Endeksi (Tahvil Paniği)", fetch_yf_data('^MOVE'), 0.09, "RISK_STRES", False, False),
             ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.08, "RISK_STRES", False, False),
             ("Getiri Eğrisi Eğim İvmesi (10Y-2Y)", fetch_fred_data('T10Y2Y'), 0.08, "FAIZ_BEKLENTI", False, True),
@@ -308,18 +348,20 @@ with st.spinner(f"{asset} için Çift Hızlı Şok Sensörleri ve Hazine İvmele
         ]
     elif asset == "Kripto (BTC)":
         metrics = [
-            ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.14, "LIKIDITE", False, False),
-            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.09, "LIKIDITE", False, False),
-            ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.10, "FAIZ_BEKLENTI", True, True),
-            ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.09, "FAIZ_BEKLENTI", True, True),
-            ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.09, "RISK_STRES", True, False),
-            ("Dolar Endeksi Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.09, "LIKIDITE", True, False),
-            ("Teknoloji / Risk İştahı (QQQ)", fetch_yf_data('QQQ'), 0.08, "BUYUME_SANAYI", False, False),
-            ("Ticari Banka Rezervleri (WRESBAL)", fetch_fred_data('WRESBAL'), 0.08, "LIKIDITE", False, False),
-            ("VIX Volatilite Eğilimi", fetch_yf_data('^VIX'), 0.07, "RISK_STRES", True, False),
-            ("Yüksek Getirili Kredi Stresi (HY OAS)", fetch_fred_data('BAMLH0A0HYM2'), 0.06, "RISK_STRES", True, True),
+            ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.12, "LIKIDITE", False, False),
+            ("Stablecoin Küresel Arz İvmesi (DefiLlama)", fetch_defillama_stablecoins(), 0.11, "LIKIDITE", False, False), # YENİ: Kripto M2 Arzı
+            ("Kripto Korku & Açgözlülük (F&G)", fetch_crypto_fear_greed(), 0.09, "RISK_STRES", False, False),          # YENİ: Sentiment Sinyali
+            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.08, "LIKIDITE", False, False),
+            ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.09, "FAIZ_BEKLENTI", True, True),
+            ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.08, "FAIZ_BEKLENTI", True, True),
+            ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.08, "RISK_STRES", True, False),
+            ("Dolar Endeksi Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.08, "LIKIDITE", True, False),
+            ("Teknoloji / Risk İştahı (QQQ)", fetch_yf_data('QQQ'), 0.07, "BUYUME_SANAYI", False, False),
+            ("Ticari Banka Rezervleri (WRESBAL)", fetch_fred_data('WRESBAL'), 0.07, "LIKIDITE", False, False),
+            ("VIX Volatilite Eğilimi", fetch_yf_data('^VIX'), 0.06, "RISK_STRES", True, False),
+            ("Yüksek Getirili Kredi Stresi (HY OAS)", fetch_fred_data('BAMLH0A0HYM2'), 0.05, "RISK_STRES", True, True),
             ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.05, "FAIZ_BEKLENTI", True, True),
-            ("SKEW Siyah Kuğu Kuyruk Riski", fetch_yf_data('^SKEW'), 0.05, "RISK_STRES", True, False),
+            ("SKEW Siyah Kuğu Kuyruk Riski", fetch_yf_data('^SKEW'), 0.04, "RISK_STRES", True, False),
         ]
     elif asset == "Ham Petrol (WTI)":
         metrics = [
@@ -473,8 +515,8 @@ with col2:
     
     st.markdown("""
     **Kurumsal Risk Yönetimi Rehberi:**
-    * **Çift Hızlı Şok Sensörü:** Jeopolitik / Siyah Kuğu şoklarında (3 günlük >%6 hareket) 60 günlük ortalama beklenmeden anında tepki verilir.
-    * **Hızlı Likidite İvmesi:** Hazine'nin nakit çekişleri ve borçlanma tavanı baskısı 5 günlük türevle anlık yakalanır.
-    * **Sistemik Risk Şalteri:** Tahvil/Kredi stresi patladığında boğa skorları kırpılır ve sistem nakit ağırlıklı savunmaya geçer.
+    * **DefiLlama Stablecoin M2:** Kripto ekosistemine giren net fiat likidite büyümesini anlık ölçer.
+    * **Crypto Fear & Greed:** Alternative.me üzerinden anlık piyasa duygu anomalilerini z-skorlar.
+    * **Pozisyon Boyutlandırma:** Model, trend skorunu varlığın 20 günlük gerçekleşen volatilitesine göre ölçekler (*Volatility Targeting*).
     * **8 Varlık Kapsamı:** Altın, Gümüş, Nasdaq, S&P 500, Kripto (BTC), Ham Petrol, Bakır ve ABD Tahvili (TLT).
     """)
