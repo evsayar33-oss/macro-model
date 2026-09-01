@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- 1. SAYFA VE API AYARLARI ---
-st.set_page_config(page_title="Makro Trend v6.6 (Institutional Fed Grade)", layout="wide")
+st.set_page_config(page_title="Makro Trend v7.0 (Autonomous Fed Grade)", layout="wide")
 
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
@@ -49,7 +49,7 @@ def fetch_yf_data(ticker, days=2500):
     except:
         return pd.Series(dtype=float)
 
-# DEFİLLAMA STABLECOIN KÜRESEL ARZ MOTORU (KRİPTO M2)
+# DEFİLLAMA STABLECOIN KÜRESEL ARZ MOTORU
 @st.cache_data(ttl=1800)
 def fetch_defillama_stablecoins():
     try:
@@ -120,38 +120,46 @@ def fetch_global_net_liquidity(days=2500):
         df = pd.DataFrame({'w': walcl, 't': tga, 'r': rrp * 1000}).dropna()
         return (df['w'] - df['t'] - df['r']).resample('B').ffill().dropna()
 
-# --- 3. SIFIR GECİKMELİ (ZERO-LAG) PİYASA REJİM MOTORU ---
+# --- 3. TAM OTONOM KENDİNİ KALİBRE EDEN REJİM MOTORU ---
 def get_realtime_macro_regime():
     t10yie = fetch_fred_data('T10YIE') 
     fwd_inf = fetch_fred_data('T5YIFR') 
-    icsa = fetch_fred_data('ICSA') # YENİ: Haftalık Öncü İstihdam Başvuruları
+    icsa = fetch_fred_data('ICSA') 
     consumer_exp = fetch_fred_data('UMCSENT') 
     
     if len(t10yie) < 60 or len(icsa) < 60:
-        return "NOTR", "NÖTR PİYASA", 1.0 
+        return "NOTR", "NÖTR PİYASA", 1.0, 2.30
         
+    # OTONOM KALİBRASYON 1: Sabit 2.30 yerine son 2 yılın (504 gün) dinamik enflasyon çıpası
+    lookback_inf = min(len(t10yie), 504)
+    inf_dynamic_anchor = float(t10yie.tail(lookback_inf).mean() + (0.25 * t10yie.tail(lookback_inf).std()))
+    
     inf_momentum = t10yie.iloc[-1] > t10yie.iloc[-40]
-    inf_elevated = t10yie.iloc[-1] > 2.30 
+    inf_elevated = t10yie.iloc[-1] > inf_dynamic_anchor
     fwd_rising = fwd_inf.iloc[-1] > fwd_inf.iloc[-60] if len(fwd_inf) > 60 else False
     
     inflation_pressure = (inf_momentum and inf_elevated) or fwd_rising
-    labor_deteriorating = icsa.iloc[-1] > icsa.iloc[-60:].mean() # İstihdam bozuluyor mu?
+    
+    # OTONOM KALİBRASYON 2: İstihdam bozulması son 6 aylık dinamik medyana göre
+    lookback_icsa = min(len(icsa), 130)
+    labor_deteriorating = icsa.iloc[-1] > float(icsa.tail(lookback_icsa).quantile(0.60))
+    
     growth_strong = consumer_exp.iloc[-1] > consumer_exp.iloc[-60] if len(consumer_exp) > 60 else True
 
     if not inflation_pressure and not labor_deteriorating:
         mult = 1.3 if growth_strong else 1.2
-        return "GOLDILOCKS", "GOLDILOCKS (Düşen Enflasyon Beklentisi, Güçlü Büyüme)", mult
+        return "GOLDILOCKS", "GOLDILOCKS (Düşen Enflasyon Beklentisi, Güçlü Büyüme)", mult, inf_dynamic_anchor
     elif inflation_pressure and not labor_deteriorating:
         mult = 1.2 if growth_strong else 1.1
-        return "REFLASYON", "REFLASYON (Genişleyen Enflasyon Beklentisi, Güçlü Büyüme)", mult
+        return "REFLASYON", "REFLASYON (Genişleyen Enflasyon Beklentisi, Güçlü Büyüme)", mult, inf_dynamic_anchor
     elif inflation_pressure and labor_deteriorating:
         mult = 1.4 if not growth_strong else 1.5 
-        return "STAGFLASYON", "STAGFLASYON (Artan Enflasyon Fiyatlaması, Zayıflayan İstihdam)", mult
+        return "STAGFLASYON", "STAGFLASYON (Artan Enflasyon Fiyatlaması, Zayıflayan İstihdam)", mult, inf_dynamic_anchor
     else:
         mult = 1.4
-        return "DEFLASYON", "DEFLASYONİST DARALMA (Çöken Enflasyon, Resesyon Baskısı)", mult
+        return "DEFLASYON", "DEFLASYONİST DARALMA (Çöken Enflasyon, Resesyon Baskısı)", mult, inf_dynamic_anchor
 
-# --- 4. SİSTEMİK RİSK VE ŞOK ŞALTERİ (CIRCUIT BREAKER) ---
+# --- 4. OTONOM ŞALTER VE KUYRUK RİSKİ MOTORU ---
 def check_systemic_circuit_breaker():
     move = fetch_yf_data('^MOVE')
     hy_oas = fetch_fred_data('BAMLH0A0HYM2') 
@@ -161,23 +169,31 @@ def check_systemic_circuit_breaker():
     reasons = []
     is_triggered = False
     
-    if not move.empty and move.iloc[-1] > 125:
-        is_triggered = True
-        reasons.append(f"MOVE Tahvil Volatilitesi Aşırı Risk Eşiğinde ({move.iloc[-1]:.1f} > 125)")
+    # OTONOM ŞALTER KALİBRASYONU: Sabit eşikler yerine 2 yıllık %95'lik persentil (Kuyruk Riski)
+    if not move.empty and len(move) > 60:
+        move_dyn_thresh = max(115.0, float(move.tail(504).quantile(0.95)))
+        if move.iloc[-1] > move_dyn_thresh:
+            is_triggered = True
+            reasons.append(f"MOVE Tahvil Volatilitesi Dinamik Risk Eşiğinde ({move.iloc[-1]:.1f} > {move_dyn_thresh:.1f})")
         
     if not hy_oas.empty and len(hy_oas) > 60:
+        hy_dyn_thresh = max(4.0, float(hy_oas.tail(504).quantile(0.95)))
         oas_z = (hy_oas.iloc[-1] - hy_oas.iloc[-60:].mean()) / (hy_oas.iloc[-60:].std() + 1e-5)
-        if oas_z > 2.2 or hy_oas.iloc[-1] > 4.5:
+        if oas_z > 2.2 or hy_oas.iloc[-1] > hy_dyn_thresh:
             is_triggered = True
-            reasons.append(f"Yüksek Getirili Kredi (HY Spread) Stres Patlaması ({hy_oas.iloc[-1]:.2f}%)")
+            reasons.append(f"Yüksek Getirili Kredi (HY Spread) Dinamik Stres Eşiğinde ({hy_oas.iloc[-1]:.2f}%)")
             
-    if not nfci.empty and nfci.iloc[-1] > 0.05:
-        is_triggered = True
-        reasons.append(f"Chicago Fed NFCI Pozitif Bölgede (Likidite Sıkılaşması)")
+    if not nfci.empty and len(nfci) > 50:
+        nfci_dyn_thresh = max(0.0, float(nfci.tail(252).quantile(0.90)))
+        if nfci.iloc[-1] > nfci_dyn_thresh:
+            is_triggered = True
+            reasons.append(f"Chicago Fed NFCI Sıkılaşma Eşiğinde ({nfci.iloc[-1]:.2f} > {nfci_dyn_thresh:.2f})")
         
-    if not vix.empty and vix.iloc[-1] > 28:
-        is_triggered = True
-        reasons.append(f"VIX Panik Eşiği Aşıldı ({vix.iloc[-1]:.1f} > 28)")
+    if not vix.empty and len(vix) > 60:
+        vix_dyn_thresh = max(25.0, float(vix.tail(504).quantile(0.95)))
+        if vix.iloc[-1] > vix_dyn_thresh:
+            is_triggered = True
+            reasons.append(f"VIX Panik Eşiğinde ({vix.iloc[-1]:.1f} > {vix_dyn_thresh:.1f})")
         
     return is_triggered, reasons
 
@@ -242,8 +258,8 @@ def process_indicator(data_series, invert=False, is_rate=False):
     return z_score, display_val
 
 # --- 6. ARAYÜZ VE UYGULAMA ---
-st.title("🏛️ KÜRESEL MAKRO & SWING MODELİ (v6.6 - ORTHOGONAL FED GRADE)")
-st.markdown("**Tam Bağımsız Faktör Mimarisi, Fiziksel Stok ve Öncü İstihdam Katmanlı Portföy Motoru**")
+st.title("🏛️ KÜRESEL MAKRO & SWING MODELİ (v7.0 - AUTONOMOUS FED GRADE)")
+st.markdown("**Tam Otonom Kalibrasyon (Self-Calibrating), Dinamik Kuyruk Riski ve 8 Varlık Portföy Motoru**")
 
 st.sidebar.header("VARLIK VE RİSK YÖNETİMİ")
 asset = st.sidebar.radio("Analiz Edilecek Varlık:", (
@@ -259,29 +275,29 @@ asset = st.sidebar.radio("Analiz Edilecek Varlık:", (
 
 target_vol_input = st.sidebar.slider("Hedef Portföy Volatilitesi (% Target Vol):", min_value=8.0, max_value=25.0, value=12.0, step=1.0)
 
-regime_code, regime_name, regime_multiplier = get_realtime_macro_regime()
+regime_code, regime_name, regime_multiplier, dynamic_inf_anchor = get_realtime_macro_regime()
 circuit_triggered, circuit_reasons = check_systemic_circuit_breaker()
 
 # Üst Bilgi Kartları
 col_info1, col_info2, col_info3 = st.columns(3)
 with col_info1:
-    st.metric("Aktif Piyasa Rejimi (Breakeven Bazlı)", regime_code, f"Çarpan: {regime_multiplier}x")
+    st.metric("Aktif Piyasa Rejimi (Otonom Bazlı)", regime_code, f"Çarpan: {regime_multiplier}x")
 with col_info2:
     if circuit_triggered:
         st.metric("Sistemik Risk Şalteri", "🚨 AKTİF (KORUMA MODU)", "Risk Azaltıldı", delta_color="inverse")
     else:
-        st.metric("Sistemik Risk Şalteri", "✅ NORMAL", "Sistem Dengeli")
+        st.metric("Sistemik Risk Şalteri", "✅ NORMAL (OTONOM)", "Dinamik Eşikler Dengeli")
 with col_info3:
     t10_val = fetch_fred_data('T10YIE')
-    st.metric("10Y Breakeven Enflasyon", f"%{t10_val.iloc[-1]:.2f}" if not t10_val.empty else "N/A", "Piyasa İçi Gerçek Zamanlı")
+    st.metric("10Y Breakeven Enflasyon", f"%{t10_val.iloc[-1]:.2f}" if not t10_val.empty else "N/A", f"Otonom Çıpa: %{dynamic_inf_anchor:.2f}")
 
 if circuit_triggered:
-    st.error(f"⚠️ **SİSTEMİK RİSK ŞALTERİ DEVREDE:** Aşağıdaki anomaliler sebebiyle alım sinyalleri baskılanmış, nakit koruması artırılmıştır:\n* " + "\n* ".join(circuit_reasons))
+    st.error(f"⚠️ **SİSTEMİK RİSK ŞALTERİ DEVREDE:** Aşağıdaki dinamik persentil kırılımları sebebiyle alım sinyalleri baskılanmış, nakit koruması artırılmıştır:\n* " + "\n* ".join(circuit_reasons))
 
 indicators_data = []
 total_score = 0
 
-with st.spinner(f"{asset} için Bağımsız Faktör Seti Hesaplanıyor..."):
+with st.spinner(f"{asset} için Otonom Kalibrasyon ve Faktörler Hesaplanıyor..."):
     if asset == "Altın (XAU)":
         metrics = [
             ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.11, "FAIZ_BEKLENTI", True, True),
@@ -302,7 +318,7 @@ with st.spinner(f"{asset} için Bağımsız Faktör Seti Hesaplanıyor..."):
         metrics = [
             ("Endüstriyel Metaller Sepeti (DBB)", fetch_yf_data('DBB'), 0.11, "BUYUME_SANAYI", False, False),
             ("Gümüş Momentum Trendi (SI=F)", fetch_yf_data('SI=F'), 0.11, "BUYUME_SANAYI", False, False),
-            ("Küresel Taşımacılık İvmesi (IYT)", fetch_yf_data('IYT'), 0.08, "BUYUME_SANAYI", False, False), # YENİ: Taşımacılık Sinyali
+            ("Küresel Taşımacılık İvmesi (IYT)", fetch_yf_data('IYT'), 0.08, "BUYUME_SANAYI", False, False),
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.09, "FAIZ_BEKLENTI", True, True),
             ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.07, "FAIZ_BEKLENTI", True, True),
             ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.09, "ENFLASYON", False, True), 
@@ -320,7 +336,7 @@ with st.spinner(f"{asset} için Bağımsız Faktör Seti Hesaplanıyor..."):
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.12, "LIKIDITE", False, False), 
             ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.07, "LIKIDITE", False, False),
             ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.09, "FAIZ_BEKLENTI", True, True),
-            ("Öncü Haftalık İstihdam Stresi (ICSA)", fetch_fred_data('ICSA'), 0.08, "RISK_STRES", True, False), # YENİ: Öncü İşsizlik
+            ("Öncü Haftalık İstihdam Stresi (ICSA)", fetch_fred_data('ICSA'), 0.08, "RISK_STRES", True, False),
             ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.09, "RISK_STRES", True, False),
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.08, "FAIZ_BEKLENTI", True, True),
             ("Ticari Banka Rezervleri (WRESBAL)", fetch_fred_data('WRESBAL'), 0.08, "LIKIDITE", False, False),
@@ -336,7 +352,7 @@ with st.spinner(f"{asset} için Bağımsız Faktör Seti Hesaplanıyor..."):
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.12, "LIKIDITE", False, False), 
             ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.07, "LIKIDITE", False, False),
             ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.08, "FAIZ_BEKLENTI", True, True),
-            ("Öncü Haftalık İstihdam Stresi (ICSA)", fetch_fred_data('ICSA'), 0.08, "RISK_STRES", True, False), # YENİ
+            ("Öncü Haftalık İstihdam Stresi (ICSA)", fetch_fred_data('ICSA'), 0.08, "RISK_STRES", True, False),
             ("Chicago Fed Finansal Koşullar (NFCI)", fetch_fred_data('NFCI'), 0.09, "RISK_STRES", True, False),
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.08, "FAIZ_BEKLENTI", True, True),
             ("Ticari Banka Rezervleri (WRESBAL)", fetch_fred_data('WRESBAL'), 0.08, "LIKIDITE", False, False),
@@ -351,7 +367,7 @@ with st.spinner(f"{asset} için Bağımsız Faktör Seti Hesaplanıyor..."):
         metrics = [
             ("Küresel Dolar Likiditesi (Fed + ECB)", fetch_global_net_liquidity(), 0.12, "LIKIDITE", False, False),
             ("Stablecoin Küresel Arz İvmesi (DefiLlama)", fetch_defillama_stablecoins(), 0.11, "LIKIDITE", False, False),
-            ("Kripto-İçi Risk İştahı (ETH/BTC)", fetch_yf_data('ETH-USD') / fetch_yf_data('BTC-USD'), 0.08, "BUYUME_SANAYI", False, False), # YENİ: Altcoin İştahı
+            ("Kripto-İçi Risk İştahı (ETH/BTC)", fetch_yf_data('ETH-USD') / fetch_yf_data('BTC-USD'), 0.08, "BUYUME_SANAYI", False, False),
             ("Kripto Korku & Açgözlülük (F&G)", fetch_crypto_fear_greed(), 0.08, "RISK_STRES", False, False),
             ("Hızlı Likidite İvmesi (5G Hazine Hızı)", fetch_global_net_liquidity().diff(5), 0.08, "LIKIDITE", False, False),
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.08, "FAIZ_BEKLENTI", True, True),
@@ -367,7 +383,7 @@ with st.spinner(f"{asset} için Bağımsız Faktör Seti Hesaplanıyor..."):
     elif asset == "Ham Petrol (WTI)":
         metrics = [
             ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.12, "ENFLASYON", False, True),
-            ("ABD Fiziksel Ham Petrol Stokları", fetch_fred_data('WCESTUS1'), 0.11, "BUYUME_SANAYI", True, False), # YENİ: Fiziksel Stok (Ters: Düşen stok = Boğa)
+            ("ABD Fiziksel Ham Petrol Stokları", fetch_fred_data('WCESTUS1'), 0.11, "BUYUME_SANAYI", True, False),
             ("Bakır / Altın Büyüme Rasyosu", fetch_yf_data('HG=F') / fetch_yf_data('GC=F'), 0.10, "BUYUME_SANAYI", False, False),
             ("Dolar Endeksi Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.10, "LIKIDITE", True, False),
             ("Endüstriyel Metaller Sepeti (DBB)", fetch_yf_data('DBB'), 0.09, "BUYUME_SANAYI", False, False),
@@ -383,7 +399,7 @@ with st.spinner(f"{asset} için Bağımsız Faktör Seti Hesaplanıyor..."):
         metrics = [
             ("Çin Piyasası İvmesi (MCHI)", fetch_yf_data('MCHI'), 0.12, "BUYUME_SANAYI", False, False),
             ("Endüstriyel Metaller Sepeti (DBB)", fetch_yf_data('DBB'), 0.11, "BUYUME_SANAYI", False, False),
-            ("Küresel Taşımacılık İvmesi (IYT)", fetch_yf_data('IYT'), 0.09, "BUYUME_SANAYI", False, False), # YENİ: Sanayi Taşımacılığı
+            ("Küresel Taşımacılık İvmesi (IYT)", fetch_yf_data('IYT'), 0.09, "BUYUME_SANAYI", False, False),
             ("Bakır / Altın Büyüme Rasyosu", fetch_yf_data('HG=F') / fetch_yf_data('GC=F'), 0.10, "BUYUME_SANAYI", False, False),
             ("Dolar Endeksi Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.10, "LIKIDITE", True, False),
             ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.09, "ENFLASYON", False, True),
@@ -398,7 +414,7 @@ with st.spinner(f"{asset} için Bağımsız Faktör Seti Hesaplanıyor..."):
         metrics = [
             ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.12, "FAIZ_BEKLENTI", True, True),
             ("Piyasa Faiz İndirim Beklentisi (2Y)", fetch_fred_data('DGS2'), 0.11, "FAIZ_BEKLENTI", True, True),
-            ("Öncü Haftalık İstihdam Stresi (ICSA)", fetch_fred_data('ICSA'), 0.10, "RISK_STRES", False, False), # YENİ (İşsizlik artışı tahvile yarar)
+            ("Öncü Haftalık İstihdam Stresi (ICSA)", fetch_fred_data('ICSA'), 0.10, "RISK_STRES", False, False),
             ("Hazine Süre/Borçlanma Riski (30Y Yield)", fetch_fred_data('DGS30'), 0.10, "FAIZ_BEKLENTI", True, True),
             ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.10, "ENFLASYON", True, True),
             ("MOVE Endeksi (Tahvil Volatilitesi)", fetch_yf_data('^MOVE'), 0.09, "RISK_STRES", True, False),
@@ -487,7 +503,7 @@ with col1:
         mode = "gauge+number",
         value = final_trend_score,
         domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': f"{asset}<br>Kurumsal Trend Skoru", 'font': {'size': 20}},
+        title = {'text': f"{asset}<br>Otonom Trend Skoru", 'font': {'size': 20}},
         gauge = {
             'axis': {'range': [-100, 100], 'tickwidth': 1},
             'bar': {'color': "black"},
@@ -516,8 +532,7 @@ with col2:
     
     st.markdown("""
     **Kurumsal Risk Yönetimi Rehberi:**
-    * **Tam Bağımsızlık:** Her gösterge tekil bir makro/fiziksel dinamiği ölçer (Çoklu doğrusallık riski sıfırlanmıştır).
-    * **Öncü İstihdam (ICSA):** Haftalık ilk işsizlik başvuruları resesyon riskini 45 gün önceden yakalar.
-    * **Fiziksel Petrol Stokları:** EIA verisi üzerinden enerji piyasasındaki gerçek fiziksel arz/talep dengesini okur.
+    * **Tam Otonom Kalibrasyon:** Enflasyon çıpası ve şalter eşikleri sabit sayılar yerine 2 yıllık kayan persentillerle (`Quantile`) her gün otomatik hesaplanır.
+    * **Yapısal Rejim Zırhı:** Fed faiz/enflasyon hedefini değiştirse dahi modelin sınırları piyasa gerçekliğine göre kendiliğinden adapte olur.
     * **8 Varlık Kapsamı:** Altın, Gümüş, Nasdaq, S&P 500, Kripto (BTC), Ham Petrol, Bakır ve ABD Tahvili (TLT).
     """)
