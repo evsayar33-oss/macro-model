@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- 1. SAYFA VE API AYARLARI ---
-st.set_page_config(page_title="Makro Trend v8.0 (Pure Structural Macro)", layout="wide")
+st.set_page_config(page_title="Makro Trend v8.1 (Pure Structural Macro)", layout="wide")
 
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
@@ -254,7 +254,7 @@ def process_indicator(data_series, invert=False, is_rate=False):
     return z_score, display_val
 
 # --- 6. ARAYÜZ VE UYGULAMA ---
-st.title("🏛️ KÜRESEL MAKRO MODELİ (v8.0 - PURE STRUCTURAL MACRO)")
+st.title("🏛️ KÜRESEL MAKRO MODELİ (v8.1 - PURE STRUCTURAL MACRO)")
 st.markdown("**Sıfır Fiyat Hilesi: %100 Saf İktisadi & Fiziki Makro Mimarisi**")
 
 st.sidebar.header("VARLIK VE RİSK YÖNETİMİ")
@@ -294,8 +294,6 @@ indicators_data = []
 total_score = 0
 
 with st.spinner(f"{asset} için %100 Saf Makro ve Fiziki Faktörler Hesaplanıyor..."):
-    # FORMAT: (Gösterge Adı, Data, Taban Ağırlık, Kategori, TersMi, FaizMi)
-    
     if asset == "Altın (XAU)":
         metrics = [
             ("Reel Faiz İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), 0.14, "FAIZ_BEKLENTI", True, True),
@@ -366,27 +364,27 @@ with st.spinner(f"{asset} için %100 Saf Makro ve Fiziki Faktörler Hesaplanıyo
             ("Ticari Banka Rezervleri (WRESBAL)", fetch_fred_data('WRESBAL'), 0.08, "LIKIDITE", False, False),
         ]
     elif asset == "Ham Petrol (WTI)":
-        # SAF FİZİKİ EMTİA MAKROSU: Crack Spread, Arz Kısıntısı, Enerji Üstünlüğü
-        gasoline = fetch_yf_data('RB=F')
-        heating_oil = fetch_yf_data('HO=F')
-        crude = fetch_yf_data('CL=F')
-        brent = fetch_yf_data('BZ=F')
+        # 1 Varil = 42 Galondur. Benzin ve Dizel galon fiyatı ($) -> Varil fiyatına ($*42) çevrilerek hesaplanır.
+        gasoline_bbl = fetch_yf_data('RB=F') * 42.0
+        heating_oil_bbl = fetch_yf_data('HO=F') * 42.0
+        crude_bbl = fetch_yf_data('CL=F')
+        brent_bbl = fetch_yf_data('BZ=F')
         dbc_commodities = fetch_yf_data('DBC')
         
-        # 3:2:1 Fiziki Rafineri Çatlak Marjı (Crack Spread) = Rafineri Talebinin Kalbi
-        crack_spread = ((2 * gasoline + 1 * heating_oil) / 3) - crude
+        # 3:2:1 Fiziki Rafineri Çatlak Marjı ($/Varil) = Gerçek Fiziki Talep
+        crack_spread = ((2 * gasoline_bbl + 1 * heating_oil_bbl) / 3) - crude_bbl
         
-        # Küresel Fiziki Arz Kıtlığı Makası (Brent/WTI Spread)
-        brent_wti_spread = brent - crude
+        # Küresel Fiziki Arz Açığı Makası (Brent/WTI Spread)
+        brent_wti_spread = brent_bbl - crude_bbl
         
         # Enerji / Genel Emtia Göreceli Makro Rotasyonu
-        oil_commodity_ratio = crude / dbc_commodities
+        oil_commodity_ratio = crude_bbl / dbc_commodities
 
         metrics = [
-            ("Rafineri Çatlak Marjı (Fiziki Talep)", crack_spread, 0.15, "BUYUME_SANAYI", False, False), # YENİ: Fiziki Rafineri Talebi
+            ("Rafineri Çatlak Marjı (Fiziki Talep)", crack_spread, 0.15, "BUYUME_SANAYI", False, False),
             ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), 0.13, "ENFLASYON", False, True),
-            ("Küresel Fiziki Arz Açığı (Brent/WTI)", brent_wti_spread, 0.12, "BUYUME_SANAYI", False, False), # YENİ: OPEC/Fiziki Kıtlık
-            ("Enerji / Emtia Rotasyon Gücü", oil_commodity_ratio, 0.11, "BUYUME_SANAYI", False, False), # YENİ: Enerji Makro Üstünlüğü
+            ("Küresel Fiziki Arz Açığı (Brent/WTI)", brent_wti_spread, 0.12, "BUYUME_SANAYI", False, False),
+            ("Enerji / Emtia Rotasyon Gücü", oil_commodity_ratio, 0.11, "BUYUME_SANAYI", False, False),
             ("Dolar Endeksi Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.10, "LIKIDITE", True, False),
             ("Bakır / Altın Büyüme Rasyosu", fetch_yf_data('HG=F') / fetch_yf_data('GC=F'), 0.10, "BUYUME_SANAYI", False, False),
             ("Endüstriyel Metaller Sepeti (DBB)", fetch_yf_data('DBB'), 0.09, "BUYUME_SANAYI", False, False),
@@ -397,7 +395,7 @@ with st.spinner(f"{asset} için %100 Saf Makro ve Fiziki Faktörler Hesaplanıyo
     elif asset == "Bakır (HG)":
         metrics = [
             ("Endüstriyel Metaller Sepeti (DBB)", fetch_yf_data('DBB'), 0.15, "BUYUME_SANAYI", False, False),
-            ("Bakır / Petrol Sanayi Rasyosu", fetch_yf_data('HG=F') / fetch_yf_data('CL=F'), 0.13, "BUYUME_SANAYI", False, False), # YENİ
+            ("Bakır / Petrol Sanayi Rasyosu", fetch_yf_data('HG=F') / fetch_yf_data('CL=F'), 0.13, "BUYUME_SANAYI", False, False),
             ("Küresel Taşımacılık İvmesi (IYT)", fetch_yf_data('IYT'), 0.12, "BUYUME_SANAYI", False, False),
             ("Bakır / Altın Büyüme Rasyosu", fetch_yf_data('HG=F') / fetch_yf_data('GC=F'), 0.11, "BUYUME_SANAYI", False, False),
             ("Dolar Endeksi Eğilimi (DXY)", fetch_yf_data('DX-Y.NYB'), 0.10, "LIKIDITE", True, False),
@@ -528,7 +526,7 @@ with col2:
     
     st.markdown("""
     **Kurumsal Saf Makro Rehberi:**
-    * **Sıfır Fiyat Hilesi:** Modelde hiçbir varlığın kendi ham fiyatı kullanılmaz; sadece arkasındaki iktisadi, fiziki ve likidite mekanizmaları ölçülür.
-    * **Fiziki Crack Spread:** Rafinerilerin benzin/dizel kârlılığı ham petrolün fiziki çekim gücünü doğrudan modeller.
+    * **Sıfır Fiyat Hilesi:** Modelde hiçbir varlığın ham fiyatı yer almaz; sadece saf iktisadi ve fiziki göstergeler ölçülür.
+    * **Fiziki Crack Spread:** 42 galon/varil emtia dönüşümlü gerçek rafineri marjı ($/Varil) fiziki çekim gücünü hesaplar.
     * **Tam Otonom Kalibrasyon:** Kendi kendini güncelleyen 2 yıllık dinamik çıpa ve şalter motoru devrededir.
     """)
