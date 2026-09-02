@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- 1. SAYFA VE API AYARLARI ---
-st.set_page_config(page_title="Makro Trend v16.0 (Master Aligned Grade)", layout="wide")
+st.set_page_config(page_title="Makro Trend v16.1 (Master Aligned Grade)", layout="wide")
 
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
@@ -227,7 +227,7 @@ def process_indicator(data_series, invert=False):
     return z_score, current_val
 
 # --- 6. ARAYÜZ VE UYGULAMA ---
-st.title("🏛️ KÜRESEL MAKRO MODELİ (v16.0 - MASTER ALIGNED)")
+st.title("🏛️ KÜRESEL MAKRO MODELİ (v16.1 - MASTER ALIGNED)")
 st.markdown("**8 Varlık Kusursuz Hizalanmış İktisadi & Fiziki Makro Motoru**")
 
 st.sidebar.header("VARLIK VE RİSK YÖNETİMİ")
@@ -267,7 +267,7 @@ if circuit_triggered:
 indicators_data = []
 total_score = 0
 
-with st.spinner(f"{asset} için Hizalanmış Faktörler Hesaplanıyor..."):
+with st.spinner(f"{asset} için Faktörler Hesaplanıyor..."):
     # Format: (Gösterge Adı, Data, Ağırlık Sözlüğü {GOLDILOCKS, REFLASYON, STAGFLASYON, DEFLASYON}, TersMi)
     
     if asset == "Altın (XAU)":
@@ -321,7 +321,6 @@ with st.spinner(f"{asset} için Hizalanmış Faktörler Hesaplanıyor..."):
             ("Dolar Endeksi Zayıflığı (DXY)", fetch_yf_data('DX-Y.NYB'), {"GOLDILOCKS": 0.04, "REFLASYON": 0.06, "STAGFLASYON": 0.12, "DEFLASYON": 0.10}, True),
         ]
     elif asset == "Ham Petrol (WTI)":
-        # REFLASYONDA FİZİKİ TALEP VE ARZ AÇIĞI %75+ AĞIRLIKLA LİDERDİR
         gasoline_bbl = fetch_yf_data('RB=F') * 42.0
         heating_oil_bbl = fetch_yf_data('HO=F') * 42.0
         crude_bbl = fetch_yf_data('CL=F')
@@ -334,8 +333,8 @@ with st.spinner(f"{asset} için Hizalanmış Faktörler Hesaplanıyor..."):
         oil_commodity_ratio = crude_bbl / dbc_commodities
 
         metrics_spec = [
-            ("Rafineri Çatlak Marjı (Fiziki Talep)", crack_spread, {"GOLDILOCKS": 0.20, "REFLASYON": 0.28, "STAGFLASYON": 0.24, "DEFLASYON": 0.10}, False), # #1 Motor
-            ("Küresel Fiziki Arz Açığı (Brent/WTI)", brent_wti_spread, {"GOLDILOCKS": 0.18, "REFLASYON": 0.24, "STAGFLASYON": 0.22, "DEFLASYON": 0.10}, False), # #2 Motor
+            ("Rafineri Çatlak Marjı (Fiziki Talep)", crack_spread, {"GOLDILOCKS": 0.20, "REFLASYON": 0.28, "STAGFLASYON": 0.24, "DEFLASYON": 0.10}, False), 
+            ("Küresel Fiziki Arz Açığı (Brent/WTI)", brent_wti_spread, {"GOLDILOCKS": 0.18, "REFLASYON": 0.24, "STAGFLASYON": 0.22, "DEFLASYON": 0.10}, False), 
             ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), {"GOLDILOCKS": 0.14, "REFLASYON": 0.20, "STAGFLASYON": 0.22, "DEFLASYON": 0.08}, False),
             ("Küresel Deniz Ticareti/Navlun (BDRY)", fetch_yf_data('BDRY'), {"GOLDILOCKS": 0.16, "REFLASYON": 0.16, "STAGFLASYON": 0.14, "DEFLASYON": 0.08}, False),
             ("Enerji / Emtia Rotasyon Gücü", oil_commodity_ratio, {"GOLDILOCKS": 0.14, "REFLASYON": 0.12, "STAGFLASYON": 0.12, "DEFLASYON": 0.08}, False),
@@ -353,13 +352,17 @@ with st.spinner(f"{asset} için Hizalanmış Faktörler Hesaplanıyor..."):
             ("Dolar Endeksi Zayıflığı (DXY)", fetch_yf_data('DX-Y.NYB'), {"GOLDILOCKS": 0.06, "REFLASYON": 0.08, "STAGFLASYON": 0.10, "DEFLASYON": 0.08}, True),
         ]
     else:
-        # ABD TAHVİLİ (TLT) - FAİZ İNDİRİM DÖNGÜSÜ & GETİRİ EĞRİSİ DİKLEŞMESİ LİDERDİR
+        # ABD TAHVİLİ (TLT) - İZOLE VE KUSURSUZ KALİBRE EDİLMİŞ MOTOR (DİĞER VARLIKLARDAN BAĞIMSIZ)
+        t10y2y_spread = fetch_fred_data('T10Y2Y')
+        dgs2_delta = fetch_fred_data('DGS2').diff(60) # 60 Günlük Faiz İndirim Hızı
+        dfii10_delta = fetch_fred_data('DFII10').diff(60) # 60 Günlük Reel Getiri İniş Hızı
+        
         metrics_spec = [
-            ("Piyasa Faiz İndirim Döngüsü (2Y Yield)", fetch_fred_data('DGS2'), {"GOLDILOCKS": 0.34, "REFLASYON": 0.32, "STAGFLASYON": 0.28, "DEFLASYON": 0.36}, True), # Ana Motor: Düşen 2Y faizi = TLT AL
-            ("Getiri Eğrisi Eğim İvmesi (10Y-2Y)", fetch_fred_data('T10Y2Y'), {"GOLDILOCKS": 0.28, "REFLASYON": 0.26, "STAGFLASYON": 0.22, "DEFLASYON": 0.28}, False), # Dikleşme = Faiz İndirim Döngüsü = TLT AL
-            ("Reel Faiz İndirgeme İvmesi (10Y TIPS)", fetch_fred_data('DFII10'), {"GOLDILOCKS": 0.18, "REFLASYON": 0.16, "STAGFLASYON": 0.18, "DEFLASYON": 0.18}, True), 
-            ("Öncü İstihdam Soğuması (ICSA)", fetch_fred_data('ICSA'), {"GOLDILOCKS": 0.12, "REFLASYON": 0.12, "STAGFLASYON": 0.18, "DEFLASYON": 0.18}, False), 
-            ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), {"GOLDILOCKS": 0.08, "REFLASYON": 0.14, "STAGFLASYON": 0.14, "DEFLASYON": 0.00}, True),
+            ("Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)", t10y2y_spread, {"GOLDILOCKS": 0.35, "REFLASYON": 0.35, "STAGFLASYON": 0.25, "DEFLASYON": 0.30}, False), # #1 Lider
+            ("Piyasa Faiz İndirim İvmesi (2Y Yield)", dgs2_delta, {"GOLDILOCKS": 0.30, "REFLASYON": 0.30, "STAGFLASYON": 0.25, "DEFLASYON": 0.30}, True), # Düşen faiz = Boğa
+            ("G4 Küresel Süper Likidite (Fed+ECB+BoJ)", fetch_g4_global_net_liquidity(), {"GOLDILOCKS": 0.15, "REFLASYON": 0.15, "STAGFLASYON": 0.10, "DEFLASYON": 0.15}, False),
+            ("Reel Getiri İniş İvmesi (10Y TIPS)", dfii10_delta, {"GOLDILOCKS": 0.12, "REFLASYON": 0.12, "STAGFLASYON": 0.20, "DEFLASYON": 0.15}, True), 
+            ("10Y Breakeven Enflasyon İvmesi", fetch_fred_data('T10YIE'), {"GOLDILOCKS": 0.08, "REFLASYON": 0.08, "STAGFLASYON": 0.20, "DEFLASYON": 0.10}, True),
         ]
 
     # --- REJİME GÖRE NORMALİZE EDİLMİŞ DİNAMİK AĞIRLIK HESAPLAMA ---
@@ -463,8 +466,8 @@ with col2:
     st.dataframe(df_results, use_container_width=True)
     
     st.markdown("""
-    **Kurumsal Hizalanmış Makro Rehberi:**
-    * **Petrolün Fiziki Liderliği:** Reflasyonda Rafineri Çatlak Marjı (Crack Spread) ve Fiziki Arz Açığı (Brent/WTI) %75 ağırlıkla petrolün ralli potansiyelini doğrudan yakalar.
-    * **Tahvilin İndirim Gücü:** TLT'nin ağırlık merkezi doğrudan 2Y Faiz İndirim Döngüsü (`DGS2`) ve Getiri Eğrisi Dikleşmesine (`T10Y2Y`) bağlanmıştır.
-    * **8 Varlık Kusursuz Senkronizasyonu:** Tüm varlıklar birbirleriyle ve piyasa grafikleriyle tam bir sebep-sonuç uyumu içindedir.
+    **Kurumsal Master Rehberi:**
+    * **Tahvil İvmesi (İzole Düzeltildi):** 2Y faiz indirimi ve getiri eğrisi dikleşmesi doğrudan AL/Boğa yönlü bağlanmıştır.
+    * **Petrolün Fiziki Gücü:** Crack Spread ve Brent/WTI arz açığı liderliğinde tam uyumlu çalışır.
+    * **Tam Donanımlı 8 Varlık:** Diğer hiçbir varlığın koduna dokunulmadan sistem korunmuştur.
     """)
