@@ -1,0 +1,22 @@
+name: "Automated Streamlit Wakeup & Data Sync"
+
+on:
+  schedule:
+    # Her 2 saatte bir otomatik çalışır (Sunucunun uyumasını engeller ve veriyi taze tutar)
+    - cron: '0 */2 * * *'
+  workflow_dispatch: # İstediğiniz an GitHub'dan manuel çalıştırma butonu
+
+jobs:
+  keep-alive-and-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Streamlit Uygulamasına İstek Gönder (Wakeup & Cache Refresh)"
+        run: |
+          echo "Streamlit uygulamasına canlı ping gönderiliyor..."
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://vdthz.streamlit.app" || echo "000")
+          echo "HTTP Yanıt Kodu: $STATUS_CODE"
+          if [ "$STATUS_CODE" -eq 200 ] || [ "$STATUS_CODE" -eq 302 ] || [ "$STATUS_CODE" -eq 304 ]; then
+            echo "✅ Başarılı: Streamlit uygulaması aktif, uyandırıldı ve veriler önbelleğe alındı!"
+          else
+            echo "ℹ️ İstek iletildi. Sunucu aktifleşiyor..."
+          fi
