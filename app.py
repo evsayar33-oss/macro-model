@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- 1. SAYFA VE API AYARLARI ---
-st.set_page_config(page_title="Makro Trend v30.0 (Validated Master Grade)", layout="wide")
+st.set_page_config(page_title="Makro Trend v31.0 (Crypto & Macro Master)", layout="wide")
 
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
@@ -171,7 +171,6 @@ def get_realtime_macro_regime():
     loose_financial_conditions = (not nfci.empty and nfci.iloc[-1] < -0.30) and (not hy_oas.empty and hy_oas.iloc[-1] < 3.20)
     market_calm = not vix.empty and vix.iloc[-1] < 18.0
     
-    # 240k Tarihsel İstihdam Standardı
     labor_deteriorating = (not icsa.empty) and (icsa.iloc[-1] > 260000)
     inf_pressure = (not t10yie.empty) and (t10yie.iloc[-1] > inf_dynamic_anchor) and not market_calm
 
@@ -220,7 +219,7 @@ def check_systemic_circuit_breaker():
         
     return is_triggered, reasons
 
-# --- 5. HAKİKİ MAKRO BENCHMARK Z-SKOR MOTORU (TÜM BUG'LAR GİDERİLDİ) ---
+# --- 5. HAKİKİ MAKRO BENCHMARK Z-SKOR MOTORU (TAM DOĞRULANMIŞ) ---
 def process_indicator(data_series, indicator_name, invert=False):
     if isinstance(data_series, pd.DataFrame):
         data_series = data_series.iloc[:, 0]
@@ -233,17 +232,15 @@ def process_indicator(data_series, indicator_name, invert=False):
     
     current_val = float(data_series.iloc[-1])
     
-    # MUTLAK İKTİSADİ BENCHMARK HESAPLAMA
+    # 1. MUTLAK İKTİSADİ VE PARASAL ÇAPALAR
     if "NFCI" in indicator_name:
         # Chicago Fed NFCI: Denge = 0.0, Std = 0.50 (Negatif = Gevşek Kredi = BOĞA)
         base_z = (0.0 - current_val) / 0.50
     elif "HY OAS" in indicator_name or "Kredi" in indicator_name:
         if "Güvenli Liman" in indicator_name:
-            # Tahvil İçin: Kredi farkı açıldıkça tahvile kaçış (Boğa), kapandıkça tahvilden çıkış (Ayı)
-            base_z = (current_val - 4.20) / 1.50
+            base_z = (current_val - 4.20) / 1.50 # Tahvil için spread açılması boğa
         else:
-            # Hisseler & Kripto İçin: Düşük spread = Güçlü Bilanço = BOĞA
-            base_z = (4.20 - current_val) / 1.50
+            base_z = (4.20 - current_val) / 1.50 # Risk varlıkları için dar spread boğa
     elif "VIX" in indicator_name:
         base_z = (19.5 - current_val) / 6.0
     elif "MOVE" in indicator_name:
@@ -253,25 +250,24 @@ def process_indicator(data_series, indicator_name, invert=False):
         if invert:
             base_z = -base_z
     elif "Reel Faiz" in indicator_name:
-        # 10Y TIPS Reel Faiz İvmesi: Nötr Seviye = %1.25, Std = %0.80
-        base_z = (current_val - 1.25) / 0.80
-        if invert:
-            base_z = -base_z
-    elif "Hazine Süre" in indicator_name or "30Y Yield" in indicator_name:
-        # 30 Yıllık Hazine Getirisi: Nötr Seviye = %4.25, Std = %0.60
-        base_z = (current_val - 4.25) / 0.60
-        if invert:
-            base_z = -base_z
-    elif "İstihdam" in indicator_name or "ICSA" in indicator_name:
-        # ICSA Tarihsel Standart: 240.000 Denge. Düşük başvuru = Güçlü istihdam (-Z), Yüksek = Resesyon (+Z)
-        base_z = (current_val - 240000.0) / 35000.0
-        if invert:
-            base_z = -base_z
+        # 10Y TIPS: Yüksek reel faiz (>1.25%) getirisiz varlıklar ve hisse için İSKONTO BASKISIDIR (-Z)
+        base_z = (1.25 - current_val) / 0.80 # 2.45% -> -1.50 Z-Skor (Doğru İktisadi Yön)
     elif "Piyasa Faiz İndirim Makası" in indicator_name:
-        # EFFR - DGS2: Pozitif Değer = Faiz İndirimi Fiyatlaması = BOĞA
+        # EFFR - DGS2: Pozitif Değer = Fed'den İndirim Beklentisi = BOĞA (+Z)
         base_z = (current_val - 0.0) / 0.80
+    elif "Stablecoin" in indicator_name:
+        # Stablecoin 90 Günlük Net Büyüme Oranı (%) (Kripto M2 Para Basımı)
+        pct_90 = (data_series.pct_change(90).dropna().iloc[-1]) * 100 if len(data_series) > 90 else 5.0
+        base_z = (pct_90 - 2.0) / 4.0 # %6+ büyüme = +1.0 ile +2.0 arası devasa Boğa
+    elif "Korku & Açgözlülük" in indicator_name:
+        # Non-Linear Sentiment Transform (Aşırı Açgözlülükte Tepe Koruması)
+        if current_val >= 75.0:
+            base_z = 0.50 - ((current_val - 75.0) / 25.0) # 75 üstünde tepe riski törpülemesi
+        elif current_val <= 25.0:
+            base_z = (25.0 - current_val) / 20.0 # Aşırı korkuda dip alım puanı (+Z)
+        else:
+            base_z = (current_val - 45.0) / 20.0 # Sağlıklı trend
     elif "G4 Küresel Süper Likidite" in indicator_name:
-        # 60 Günlük Net İmpuls Akımı
         diff_60 = data_series.diff(60).dropna()
         std_60 = diff_60.std() if len(diff_60) > 10 else 1.0
         base_z = (diff_60.iloc[-1]) / (std_60 + 1e-5)
@@ -293,8 +289,8 @@ def process_indicator(data_series, indicator_name, invert=False):
     return z_score, current_val
 
 # --- 6. ARAYÜZ VE UYGULAMA ---
-st.title("🏛️ KÜRESEL MAKRO MODELİ (v30.0 - VALIDATED MASTER)")
-st.markdown("**Tam Doğrulanmış Yönsel Ekonometri, Hatasız Makaslar & 8 Varlık Portföy Motoru**")
+st.title("🏛️ KÜRESEL MAKRO MODELİ (v31.0 - CRYPTO & MACRO MASTER)")
+st.markdown("**Doğrulanmış 10Y TIPS İskontosu, Stablecoin M2 Büyümesi & Kontrarian F&G Modeli**")
 
 st.sidebar.header("VARLIK VE RİSK YÖNETİMİ")
 asset = st.sidebar.radio("Analiz Edilecek Varlık:", (
@@ -335,10 +331,9 @@ total_score = 0
 
 with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
     
-    # Ortak Veri Akışları (EFFR - DGS2 Doğru Sıralamasıyla)
     dgs2 = fetch_fred_data('DGS2')
     effr = fetch_fred_data('EFFR')
-    fed_easing_spread = safe_spread(effr, dgs2) # DOĞRU FORMÜL: EFFR - DGS2 (Pozitif = Faiz İndirimi)
+    fed_easing_spread = safe_spread(effr, dgs2) # EFFR - DGS2 (Pozitif = Faiz İndirimi Beklentisi)
     
     g4_liq = fetch_g4_global_net_liquidity()
     tips_real = fetch_fred_data('DFII10')
@@ -358,17 +353,14 @@ with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
     tan_solar = fetch_yf_data('TAN')
     us_debt = fetch_fred_data('GFDEBTN')
     
-    # Format: (Gösterge Adı, Data, Ağırlık Sözlüğü {GOLDILOCKS, REFLASYON, STAGFLASYON, DEFLASYON}, TersMi)
-    # KURAL: Hiçbir faktör %18 ağırlığı geçemez (Çeşitlendirme Zırhı)
-    
     if asset == "Altın (XAU)":
         gold_oil_ratio = safe_ratio(fetch_yf_data('GC=F'), fetch_yf_data('CL=F'))
         metrics_spec = [
             ("G4 Küresel Süper Likidite (Fed+ECB+BoJ)", g4_liq, {"GOLDILOCKS": 0.18, "REFLASYON": 0.17, "STAGFLASYON": 0.16, "DEFLASYON": 0.18}, False),
             ("10Y Breakeven Enflasyon Genişlemesi", t10yie, {"GOLDILOCKS": 0.16, "REFLASYON": 0.18, "STAGFLASYON": 0.18, "DEFLASYON": 0.08}, False),
             ("ABD Kamu Borcu / De-Dolarizasyon", us_debt, {"GOLDILOCKS": 0.16, "REFLASYON": 0.16, "STAGFLASYON": 0.18, "DEFLASYON": 0.14}, False),
-            ("Piyasa Faiz İndirim Makası (EFFR - DGS2)", fed_easing_spread, {"GOLDILOCKS": 0.12, "REFLASYON": 0.12, "STAGFLASYON": 0.08, "DEFLASYON": 0.16}, False),
-            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.10, "REFLASYON": 0.10, "STAGFLASYON": 0.08, "DEFLASYON": 0.12}, True),
+            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.12, "REFLASYON": 0.12, "STAGFLASYON": 0.08, "DEFLASYON": 0.14}, False),
+            ("Piyasa Faiz İndirim Makası (EFFR - DGS2)", fed_easing_spread, {"GOLDILOCKS": 0.10, "REFLASYON": 0.10, "STAGFLASYON": 0.08, "DEFLASYON": 0.14}, False),
             ("Dolar Endeksi Zayıflığı (DXY)", dxy, {"GOLDILOCKS": 0.08, "REFLASYON": 0.08, "STAGFLASYON": 0.06, "DEFLASYON": 0.10}, True),
             ("Altın / Petrol Stagflasyon Gücü (GC/CL)", gold_oil_ratio, {"GOLDILOCKS": 0.06, "REFLASYON": 0.05, "STAGFLASYON": 0.08, "DEFLASYON": 0.06}, False),
             ("5y5y Forward Enflasyon Çıpası", t5yifr, {"GOLDILOCKS": 0.05, "REFLASYON": 0.05, "STAGFLASYON": 0.05, "DEFLASYON": 0.04}, False),
@@ -387,7 +379,7 @@ with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
             ("Güneş Paneli / Solar PV Talebi (TAN)", tan_solar, {"GOLDILOCKS": 0.14, "REFLASYON": 0.14, "STAGFLASYON": 0.08, "DEFLASYON": 0.06}, False),
             ("Altın / Gümüş Değerleme Rasyosu (GC/SI)", gc_si_ratio, {"GOLDILOCKS": 0.12, "REFLASYON": 0.12, "STAGFLASYON": 0.14, "DEFLASYON": 0.14}, False),
             ("Piyasa Faiz İndirim Makası (EFFR - DGS2)", fed_easing_spread, {"GOLDILOCKS": 0.08, "REFLASYON": 0.08, "STAGFLASYON": 0.06, "DEFLASYON": 0.12}, False),
-            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.06, "REFLASYON": 0.06, "STAGFLASYON": 0.06, "DEFLASYON": 0.10}, True),
+            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.06, "REFLASYON": 0.06, "STAGFLASYON": 0.06, "DEFLASYON": 0.10}, False),
             ("Dolar Endeksi Zayıflığı (DXY)", dxy, {"GOLDILOCKS": 0.04, "REFLASYON": 0.04, "STAGFLASYON": 0.04, "DEFLASYON": 0.08}, True),
             ("Bakır / Altın Büyüme Rasyosu (HG/GC)", hg_gc_ratio, {"GOLDILOCKS": 0.03, "REFLASYON": 0.02, "STAGFLASYON": 0.02, "DEFLASYON": 0.04}, False),
             ("Küresel Taşımacılık / Lojistik (IYT)", fetch_yf_data('IYT'), {"GOLDILOCKS": 0.02, "REFLASYON": 0.02, "STAGFLASYON": 0.02, "DEFLASYON": 0.04}, False),
@@ -407,7 +399,7 @@ with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
             ("Yen Carry Trade Döngüsü (USD/JPY)", fetch_yf_data('JPY=X'), {"GOLDILOCKS": 0.06, "REFLASYON": 0.06, "STAGFLASYON": 0.06, "DEFLASYON": 0.06}, False),
             ("Ticari Banka Rezervleri (WRESBAL)", wresbal, {"GOLDILOCKS": 0.05, "REFLASYON": 0.06, "STAGFLASYON": 0.06, "DEFLASYON": 0.06}, False),
             ("NQ / 10Y Risk Primi (QQQ/^TNX)", qqq_tnx_ratio, {"GOLDILOCKS": 0.03, "REFLASYON": 0.04, "STAGFLASYON": 0.04, "DEFLASYON": 0.04}, False),
-            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.02, "REFLASYON": 0.03, "STAGFLASYON": 0.06, "DEFLASYON": 0.03}, True),
+            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.02, "REFLASYON": 0.03, "STAGFLASYON": 0.06, "DEFLASYON": 0.03}, False),
             ("Öncü İstihdam (ICSA)", icsa, {"GOLDILOCKS": 0.01, "REFLASYON": 0.02, "STAGFLASYON": 0.05, "DEFLASYON": 0.03}, True),
             ("MOVE Endeksi (Tahvil Baskısı)", move, {"GOLDILOCKS": 0.01, "REFLASYON": 0.02, "STAGFLASYON": 0.04, "DEFLASYON": 0.03}, True),
         ]
@@ -423,7 +415,7 @@ with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
             ("Ticari Banka Rezervleri (WRESBAL)", wresbal, {"GOLDILOCKS": 0.06, "REFLASYON": 0.06, "STAGFLASYON": 0.06, "DEFLASYON": 0.06}, False),
             ("Küresel Taşımacılık / Lojistik (IYT)", fetch_yf_data('IYT'), {"GOLDILOCKS": 0.05, "REFLASYON": 0.06, "STAGFLASYON": 0.06, "DEFLASYON": 0.04}, False),
             ("10Y Breakeven Enflasyon İvmesi", t10yie, {"GOLDILOCKS": 0.03, "REFLASYON": 0.04, "STAGFLASYON": 0.05, "DEFLASYON": 0.04}, False),
-            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.02, "REFLASYON": 0.03, "STAGFLASYON": 0.05, "DEFLASYON": 0.04}, True),
+            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.02, "REFLASYON": 0.03, "STAGFLASYON": 0.05, "DEFLASYON": 0.04}, False),
             ("Öncü İstihdam (ICSA)", icsa, {"GOLDILOCKS": 0.02, "REFLASYON": 0.02, "STAGFLASYON": 0.05, "DEFLASYON": 0.04}, True),
             ("MOVE Endeksi (Tahvil Volatilitesi)", move, {"GOLDILOCKS": 0.01, "REFLASYON": 0.01, "STAGFLASYON": 0.04, "DEFLASYON": 0.03}, True),
         ]
@@ -437,7 +429,7 @@ with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
             ("Kripto-İçi Risk İştahı (ETH/BTC)", eth_btc_ratio, {"GOLDILOCKS": 0.10, "REFLASYON": 0.10, "STAGFLASYON": 0.08, "DEFLASYON": 0.06}, False),
             ("Piyasa Faiz İndirim Makası (EFFR - DGS2)", fed_easing_spread, {"GOLDILOCKS": 0.08, "REFLASYON": 0.08, "STAGFLASYON": 0.08, "DEFLASYON": 0.12}, False),
             ("Ticari Banka Rezervleri (WRESBAL)", wresbal, {"GOLDILOCKS": 0.06, "REFLASYON": 0.06, "STAGFLASYON": 0.06, "DEFLASYON": 0.06}, False),
-            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.05, "REFLASYON": 0.05, "STAGFLASYON": 0.07, "DEFLASYON": 0.06}, True),
+            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.05, "REFLASYON": 0.05, "STAGFLASYON": 0.07, "DEFLASYON": 0.06}, False),
             ("Dolar Endeksi Zayıflığı (DXY)", dxy, {"GOLDILOCKS": 0.04, "REFLASYON": 0.04, "STAGFLASYON": 0.06, "DEFLASYON": 0.06}, True),
             ("Yüksek Getirili Kredi Stresi (HY OAS)", hy_oas, {"GOLDILOCKS": 0.03, "REFLASYON": 0.03, "STAGFLASYON": 0.05, "DEFLASYON": 0.04}, False),
             ("Hızlı Likidite İvmesi (5G Hazine Hızı)", g4_liq.diff(5), {"GOLDILOCKS": 0.02, "REFLASYON": 0.02, "STAGFLASYON": 0.03, "DEFLASYON": 0.03}, False),
@@ -469,7 +461,7 @@ with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
             ("Endüstriyel Metaller Sepeti (DBB)", fetch_yf_data('DBB'), {"GOLDILOCKS": 0.03, "REFLASYON": 0.03, "STAGFLASYON": 0.03, "DEFLASYON": 0.03}, False),
             ("5y5y Forward Enflasyon Çıpası", t5yifr, {"GOLDILOCKS": 0.03, "REFLASYON": 0.03, "STAGFLASYON": 0.03, "DEFLASYON": 0.02}, False),
             ("Dolar Endeksi Zayıflığı (DXY)", dxy, {"GOLDILOCKS": 0.02, "REFLASYON": 0.01, "STAGFLASYON": 0.02, "DEFLASYON": 0.03}, True),
-            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.01, "REFLASYON": 0.01, "STAGFLASYON": 0.01, "DEFLASYON": 0.03}, True),
+            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.01, "REFLASYON": 0.01, "STAGFLASYON": 0.01, "DEFLASYON": 0.03}, False),
         ]
     elif asset == "Bakır (HG)":
         hg_cl_ratio = safe_ratio(fetch_yf_data('HG=F'), fetch_yf_data('CL=F'))
@@ -483,22 +475,22 @@ with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
             ("10Y Breakeven Enflasyon İvmesi", t10yie, {"GOLDILOCKS": 0.08, "REFLASYON": 0.08, "STAGFLASYON": 0.12, "DEFLASYON": 0.06}, False), 
             ("Chicago Fed Finansal Koşullar (NFCI)", nfci, {"GOLDILOCKS": 0.06, "REFLASYON": 0.06, "STAGFLASYON": 0.10, "DEFLASYON": 0.08}, False), 
             ("Küresel Taşımacılık İvmesi (IYT)", fetch_yf_data('IYT'), {"GOLDILOCKS": 0.05, "REFLASYON": 0.05, "STAGFLASYON": 0.06, "DEFLASYON": 0.04}, False), 
-            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.04, "REFLASYON": 0.04, "STAGFLASYON": 0.06, "DEFLASYON": 0.05}, True), 
+            ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.04, "REFLASYON": 0.04, "STAGFLASYON": 0.06, "DEFLASYON": 0.05}, False), 
             ("Piyasa Faiz İndirim Makası (EFFR - DGS2)", fed_easing_spread, {"GOLDILOCKS": 0.03, "REFLASYON": 0.03, "STAGFLASYON": 0.04, "DEFLASYON": 0.04}, False), 
             ("Çin Piyasası İvmesi (MCHI)", fetch_yf_data('MCHI'), {"GOLDILOCKS": 0.01, "REFLASYON": 0.005, "STAGFLASYON": 0.02, "DEFLASYON": 0.02}, False), 
             ("Dolar Endeksi Zayıflığı (DXY)", dxy, {"GOLDILOCKS": 0.01, "REFLASYON": 0.005, "STAGFLASYON": 0.02, "DEFLASYON": 0.03}, True), 
         ]
     else:
-        # ABD TAHVİLİ (TLT) - DOĞRULANMIŞ RISK-PARITY DAĞILIMI (MAX %18 AĞIRLIK KURALIYLA)
+        # ABD TAHVİLİ (TLT)
         metrics_spec = [
-            ("Piyasa Faiz İndirim Makası (EFFR - DGS2)", fed_easing_spread, {"GOLDILOCKS": 0.18, "REFLASYON": 0.18, "STAGFLASYON": 0.16, "DEFLASYON": 0.18}, False), # Pozitif = Faiz İndirimi = Boğa
+            ("Piyasa Faiz İndirim Makası (EFFR - DGS2)", fed_easing_spread, {"GOLDILOCKS": 0.18, "REFLASYON": 0.18, "STAGFLASYON": 0.16, "DEFLASYON": 0.18}, False),
             ("Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)", t10y2y, {"GOLDILOCKS": 0.16, "REFLASYON": 0.16, "STAGFLASYON": 0.14, "DEFLASYON": 0.16}, False),
             ("G4 Küresel Süper Likidite (Fed+ECB+BoJ)", g4_liq, {"GOLDILOCKS": 0.14, "REFLASYON": 0.14, "STAGFLASYON": 0.12, "DEFLASYON": 0.14}, False),
-            ("Hazine Süre/Borçlanma Riski (30Y Yield)", dgs30, {"GOLDILOCKS": 0.14, "REFLASYON": 0.14, "STAGFLASYON": 0.12, "DEFLASYON": 0.10}, True), # 30Y Getirisi = Durasyon Riski
-            ("Reel Faiz İndirgeme İvmesi (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.12, "REFLASYON": 0.12, "STAGFLASYON": 0.12, "DEFLASYON": 0.14}, True),
+            ("Hazine Süre/Borçlanma Riski (30Y Yield)", dgs30, {"GOLDILOCKS": 0.14, "REFLASYON": 0.14, "STAGFLASYON": 0.12, "DEFLASYON": 0.10}, True),
+            ("Reel Faiz İndirgeme İvmesi (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.12, "REFLASYON": 0.12, "STAGFLASYON": 0.12, "DEFLASYON": 0.14}, False),
             ("10Y Breakeven Enflasyon İvmesi", t10yie, {"GOLDILOCKS": 0.10, "REFLASYON": 0.10, "STAGFLASYON": 0.14, "DEFLASYON": 0.08}, True),
-            ("Öncü İstihdam (ICSA)", icsa, {"GOLDILOCKS": 0.06, "REFLASYON": 0.06, "STAGFLASYON": 0.08, "DEFLASYON": 0.08}, False), # 204k = Güçlü İstihdam (-Z)
-            ("Yüksek Getirili Kredi Stresi (HY OAS - Güvenli Liman)", hy_oas, {"GOLDILOCKS": 0.04, "REFLASYON": 0.04, "STAGFLASYON": 0.06, "DEFLASYON": 0.06}, False), # Sıkı Kredi = Tahvilden Çıkış (-Z)
+            ("Öncü İstihdam (ICSA)", icsa, {"GOLDILOCKS": 0.06, "REFLASYON": 0.06, "STAGFLASYON": 0.08, "DEFLASYON": 0.08}, False),
+            ("Yüksek Getirili Kredi Stresi (HY OAS - Güvenli Liman)", hy_oas, {"GOLDILOCKS": 0.04, "REFLASYON": 0.04, "STAGFLASYON": 0.06, "DEFLASYON": 0.06}, False),
             ("Küresel Deniz Ticareti/Navlun (BDRY)", bdry, {"GOLDILOCKS": 0.02, "REFLASYON": 0.02, "STAGFLASYON": 0.03, "DEFLASYON": 0.02}, True),
             ("MOVE Endeksi (Tahvil Volatilitesi)", move, {"GOLDILOCKS": 0.02, "REFLASYON": 0.02, "STAGFLASYON": 0.02, "DEFLASYON": 0.02}, True),
             ("Dolar Endeksi Zayıflığı (DXY)", dxy, {"GOLDILOCKS": 0.02, "REFLASYON": 0.02, "STAGFLASYON": 0.01, "DEFLASYON": 0.02}, False),
@@ -517,7 +509,7 @@ with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
         
         z, val = process_indicator(data_series, name, invert)
         
-        # ASİMETRİK ÇARPAN KORUMASI (Drawdown Sönümleyici)
+        # ASİMETRİK ÇARPAN KORUMASI
         if z >= 0:
             active_mult = regime_multiplier
         else:
@@ -591,7 +583,7 @@ with col1:
         mode = "gauge+number",
         value = final_trend_score,
         domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': f"{asset}<br>Validated Master Skoru", 'font': {'size': 20}},
+        title = {'text': f"{asset}<br>Full-Depth Master Skoru", 'font': {'size': 20}},
         gauge = {
             'axis': {'range': [-100, 100], 'tickwidth': 1},
             'bar': {'color': "black"},
@@ -614,13 +606,13 @@ with col1:
         st.metric("Nakit / Likit Rezerv Payı", f"%{cash_allocation:.1f}", f"Gerçekleşen Vol: %{realized_vol_20:.1f}")
 
 with col2:
-    st.markdown("### 📊 Validated Master 12 Faktörlü Tablo")
+    st.markdown("### 📊 Full-Depth 12 Faktörlü Tablo")
     df_results = pd.DataFrame(indicators_data)
     st.dataframe(df_results, use_container_width=True)
     
     st.markdown("""
-    **Kurumsal Validated Master Rehberi:**
-    * **Tam Doğrulanmış Ekonometri:** HY OAS güvenli liman ayrımı, $EFFR - DGS2$ faiz indirim makası ve ICSA 240k istihdam standardı matematiksel olarak düzeltilmiştir.
-    * **Risk Parity Ağırlık Kuralı:** Hiçbir gösterge %18 ağırlığı aşamaz; 11-12 faktörün tamamı portföyü eşitlikçi ve dengeli yönetir.
-    * **Uzun Vadeli Akümülasyon / Dağıtım:** Aylar süren büyük makro döngüler sıfır sapmayla tespit edilir.
+    **Kurumsal v31.0 Rehberi:**
+    * **10Y TIPS Doğrulaması:** Reel faizin %2.45 gibi sıkılaştırıcı seviyeleri getirisiz ve riskli varlıklar için doğru negatif iskonto üretir.
+    * **Stablecoin 90G Büyüme:** Kripto M2 likidite basımı 90 günlük net akım üzerinden tam güçle modele dahil edilmiştir.
+    * **Kontrarian F&G Tepe Törpülemesi:** Aşırı açgözlülükte (F&G > 75) model dağıtım riskini algılayarak skoru korumaya alır.
     """)
