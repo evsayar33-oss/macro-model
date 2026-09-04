@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- 1. SAYFA VE API AYARLARI ---
-st.set_page_config(page_title="Makro Trend v28.0 (Structural Parity Master)", layout="wide")
+st.set_page_config(page_title="Makro Trend v29.0 (Asymmetric Master Grade)", layout="wide")
 
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
@@ -247,25 +247,21 @@ def process_indicator(data_series, indicator_name, invert=False):
         if invert:
             base_z = -base_z
     elif "Reel Faiz" in indicator_name:
-        # 10Y TIPS Reel Faiz İvmesi (30G Momentum & Nötr Çıpa)
         diff_30 = data_series.diff(30).dropna().iloc[-1] if len(data_series) > 30 else 0.0
-        base_z = (diff_30 / 0.30) # Faiz indikçe eksi çıkar
+        base_z = (diff_30 / 0.30)
         if invert:
-            base_z = -base_z # Faiz indikçe Boğa olur
+            base_z = -base_z
     elif "Piyasa Faiz İndirim Makası" in indicator_name:
         base_z = (0.0 - current_val) / 0.80
     elif "G4 Küresel Süper Likidite" in indicator_name:
-        # G4 Likidite Akımı (60 Günlük Net İmpuls)
         diff_60 = data_series.diff(60).dropna()
         std_60 = diff_60.std() if len(diff_60) > 10 else 1.0
-        base_z = (diff_60.iloc[-1]) / (std_60 + 1e-5) # Genişleme = Pozitif Boğa
+        base_z = (diff_60.iloc[-1]) / (std_60 + 1e-5)
     elif "Altın / Gümüş Değerleme Rasyosu" in indicator_name:
-        # Gold/Silver Ratio Mean-Reversion: 80'in üstü Gümüş için Aşırı Ucuzluk (Boğa)
         base_z = (current_val - 80.0) / 10.0
     elif "ABD Kamu Borcu" in indicator_name:
-        # Borç Genişlemesi / De-Dolarizasyon (Yıllık Büyüme)
         pct_yoy = (data_series.pct_change(252).dropna().iloc[-1]) * 100 if len(data_series) > 252 else 5.0
-        base_z = (pct_yoy - 4.0) / 3.0 # Borç arttıkça Altın için Boğa
+        base_z = (pct_yoy - 4.0) / 3.0
     else:
         lookback = min(len(data_series), 252)
         ema_trend = data_series.ewm(span=40, adjust=False).mean().iloc[-1]
@@ -279,8 +275,8 @@ def process_indicator(data_series, indicator_name, invert=False):
     return z_score, current_val
 
 # --- 6. ARAYÜZ VE UYGULAMA ---
-st.title("🏛️ KÜRESEL MAKRO MODELİ (v28.0 - STRUCTURAL PARITY MASTER)")
-st.markdown("**Yapısal Parasal Çapa, De-Dolarizasyon, Güneş Enerjisi & 8 Varlık Senkronizasyonu**")
+st.title("🏛️ KÜRESEL MAKRO MODELİ (v29.0 - ASYMMETRIC MASTER)")
+st.markdown("**Asimetrik Çarpan Savunması, 5G/20G Volatiliteli Şok Tıraşı & 8 Varlık Koruma Motoru**")
 
 st.sidebar.header("VARLIK VE RİSK YÖNETİMİ")
 asset = st.sidebar.radio("Analiz Edilecek Varlık:", (
@@ -319,7 +315,7 @@ if circuit_triggered:
 indicators_data = []
 total_score = 0
 
-with st.spinner(f"{asset} için Yapısal Faktör Seti Hesaplanıyor..."):
+with st.spinner(f"{asset} için Asimetrik Korumalı Faktör Seti Hesaplanıyor..."):
     
     # Ortak Veri Akışları
     dgs2 = fetch_fred_data('DGS2')
@@ -341,15 +337,15 @@ with st.spinner(f"{asset} için Yapısal Faktör Seti Hesaplanıyor..."):
     wresbal = fetch_fred_data('WRESBAL')
     vix = fetch_yf_data('^VIX')
     dbb = fetch_yf_data('DBB')
-    tan_solar = fetch_yf_data('TAN') # Güneş Enerjisi / Fotovoltaik Gümüş Talebi
-    us_debt = fetch_fred_data('GFDEBTN') # ABD Toplam Kamu Borcu (De-Dolarizasyon Çıpası)
+    tan_solar = fetch_yf_data('TAN')
+    us_debt = fetch_fred_data('GFDEBTN')
     
     if asset == "Altın (XAU)":
         gold_oil_ratio = safe_ratio(fetch_yf_data('GC=F'), fetch_yf_data('CL=F'))
         metrics_spec = [
             ("G4 Küresel Süper Likidite (Fed+ECB+BoJ)", g4_liq, {"GOLDILOCKS": 0.20, "REFLASYON": 0.20, "STAGFLASYON": 0.18, "DEFLASYON": 0.20}, False),
             ("10Y Breakeven Enflasyon Genişlemesi", t10yie, {"GOLDILOCKS": 0.18, "REFLASYON": 0.20, "STAGFLASYON": 0.24, "DEFLASYON": 0.08}, False),
-            ("ABD Kamu Borcu / De-Dolarizasyon", us_debt, {"GOLDILOCKS": 0.18, "REFLASYON": 0.18, "STAGFLASYON": 0.20, "DEFLASYON": 0.16}, False), # YENİ: Maliye Hakimiyeti
+            ("ABD Kamu Borcu / De-Dolarizasyon", us_debt, {"GOLDILOCKS": 0.18, "REFLASYON": 0.18, "STAGFLASYON": 0.20, "DEFLASYON": 0.16}, False),
             ("Piyasa Faiz İndirim Makası (DGS2 - EFFR)", fed_easing_spread, {"GOLDILOCKS": 0.12, "REFLASYON": 0.12, "STAGFLASYON": 0.08, "DEFLASYON": 0.16}, False),
             ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.10, "REFLASYON": 0.10, "STAGFLASYON": 0.08, "DEFLASYON": 0.12}, True),
             ("Dolar Endeksi Zayıflığı (DXY)", dxy, {"GOLDILOCKS": 0.08, "REFLASYON": 0.08, "STAGFLASYON": 0.06, "DEFLASYON": 0.10}, True),
@@ -361,15 +357,14 @@ with st.spinner(f"{asset} için Yapısal Faktör Seti Hesaplanıyor..."):
             ("Hazine Süre/Borçlanma Riski (30Y Yield)", dgs30, {"GOLDILOCKS": 0.005, "REFLASYON": 0.002, "STAGFLASYON": 0.005, "DEFLASYON": 0.01}, True),
         ]
     elif asset == "Gümüş (XAG)":
-        # Altın ile %85 Uyumlu Parasal Omurga + Güneş Enerjisi & GC/SI Rasyosu
         hg_gc_ratio = safe_ratio(fetch_yf_data('HG=F'), fetch_yf_data('GC=F'))
         gc_si_ratio = safe_ratio(fetch_yf_data('GC=F'), fetch_yf_data('SI=F'))
         metrics_spec = [
             ("G4 Küresel Süper Likidite (Fed+ECB+BoJ)", g4_liq, {"GOLDILOCKS": 0.18, "REFLASYON": 0.18, "STAGFLASYON": 0.16, "DEFLASYON": 0.18}, False),
             ("10Y Breakeven Enflasyon Genişlemesi", t10yie, {"GOLDILOCKS": 0.16, "REFLASYON": 0.18, "STAGFLASYON": 0.22, "DEFLASYON": 0.08}, False),
             ("Endüstriyel Metaller Sepeti (DBB)", dbb, {"GOLDILOCKS": 0.16, "REFLASYON": 0.16, "STAGFLASYON": 0.10, "DEFLASYON": 0.08}, False),
-            ("Güneş Paneli / Solar PV Talebi (TAN)", tan_solar, {"GOLDILOCKS": 0.14, "REFLASYON": 0.14, "STAGFLASYON": 0.08, "DEFLASYON": 0.06}, False), # YENİ: Fiziki Güneş Paneli
-            ("Altın / Gümüş Değerleme Rasyosu (GC/SI)", gc_si_ratio, {"GOLDILOCKS": 0.12, "REFLASYON": 0.12, "STAGFLASYON": 0.14, "DEFLASYON": 0.14}, False), # YENİ: Mean-Reversion
+            ("Güneş Paneli / Solar PV Talebi (TAN)", tan_solar, {"GOLDILOCKS": 0.14, "REFLASYON": 0.14, "STAGFLASYON": 0.08, "DEFLASYON": 0.06}, False),
+            ("Altın / Gümüş Değerleme Rasyosu (GC/SI)", gc_si_ratio, {"GOLDILOCKS": 0.12, "REFLASYON": 0.12, "STAGFLASYON": 0.14, "DEFLASYON": 0.14}, False),
             ("Piyasa Faiz İndirim Makası (DGS2 - EFFR)", fed_easing_spread, {"GOLDILOCKS": 0.08, "REFLASYON": 0.08, "STAGFLASYON": 0.06, "DEFLASYON": 0.12}, False),
             ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.06, "REFLASYON": 0.06, "STAGFLASYON": 0.06, "DEFLASYON": 0.10}, True),
             ("Dolar Endeksi Zayıflığı (DXY)", dxy, {"GOLDILOCKS": 0.04, "REFLASYON": 0.04, "STAGFLASYON": 0.04, "DEFLASYON": 0.08}, True),
@@ -418,14 +413,14 @@ with st.spinner(f"{asset} için Yapısal Faktör Seti Hesaplanıyor..."):
             ("G4 Küresel Süper Likidite (Fed+ECB+BoJ)", g4_liq, {"GOLDILOCKS": 0.22, "REFLASYON": 0.20, "STAGFLASYON": 0.16, "DEFLASYON": 0.20}, False),
             ("Chicago Fed Finansal Koşullar (NFCI)", nfci, {"GOLDILOCKS": 0.14, "REFLASYON": 0.14, "STAGFLASYON": 0.12, "DEFLASYON": 0.12}, False),
             ("Kripto Korku & Açgözlülük (F&G)", fetch_crypto_fear_greed(), {"GOLDILOCKS": 0.10, "REFLASYON": 0.10, "STAGFLASYON": 0.12, "DEFLASYON": 0.08}, False),
-            ("Piyasa Faiz İndirim Makası (DGS2 - EFFR)", fed_easing_spread, {"GOLDILOCKS": 0.08, "REFLASYON": 0.08, "STAGFLASYON": 0.08, "DEFLASYON": 0.12}, False),
             ("Kripto-İçi Risk İştahı (ETH/BTC)", eth_btc_ratio, {"GOLDILOCKS": 0.08, "REFLASYON": 0.08, "STAGFLASYON": 0.06, "DEFLASYON": 0.06}, False),
+            ("Piyasa Faiz İndirim Makası (DGS2 - EFFR)", fed_easing_spread, {"GOLDILOCKS": 0.06, "REFLASYON": 0.08, "STAGFLASYON": 0.08, "DEFLASYON": 0.12}, False),
             ("Ticari Banka Rezervleri (WRESBAL)", wresbal, {"GOLDILOCKS": 0.04, "REFLASYON": 0.05, "STAGFLASYON": 0.06, "DEFLASYON": 0.06}, False),
             ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.03, "REFLASYON": 0.04, "STAGFLASYON": 0.06, "DEFLASYON": 0.04}, True),
             ("Dolar Endeksi Zayıflığı (DXY)", dxy, {"GOLDILOCKS": 0.03, "REFLASYON": 0.03, "STAGFLASYON": 0.06, "DEFLASYON": 0.04}, True),
             ("Yüksek Getirili Kredi Stresi (HY OAS)", hy_oas, {"GOLDILOCKS": 0.015, "REFLASYON": 0.02, "STAGFLASYON": 0.04, "DEFLASYON": 0.03}, False),
-            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", g4_liq.diff(5), {"GOLDILOCKS": 0.003, "REFLASYON": 0.01, "STAGFLASYON": 0.02, "DEFLASYON": 0.01}, False),
-            ("Hazine Süre/Borçlanma Riski (30Y Yield)", dgs30, {"GOLDILOCKS": 0.002, "REFLASYON": 0.01, "STAGFLASYON": 0.02, "DEFLASYON": 0.01}, True),
+            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", g4_liq.diff(5), {"GOLDILOCKS": 0.01, "REFLASYON": 0.01, "STAGFLASYON": 0.02, "DEFLASYON": 0.01}, False),
+            ("Hazine Süre/Borçlanma Riski (30Y Yield)", dgs30, {"GOLDILOCKS": 0.005, "REFLASYON": 0.01, "STAGFLASYON": 0.02, "DEFLASYON": 0.01}, True),
         ]
     elif asset == "Ham Petrol (WTI)":
         gasoline_bbl = fetch_yf_data('RB=F') * 42.0
@@ -500,7 +495,14 @@ with st.spinner(f"{asset} için Yapısal Faktör Seti Hesaplanıyor..."):
         dyn_weight = dyn_weights[idx]
         
         z, val = process_indicator(data_series, name, invert)
-        contribution = z * dyn_weight * regime_multiplier
+        
+        # ASİMETRİK ÇARPAN KORUMASI (Drawdown Sönümleyici)
+        if z >= 0:
+            active_mult = regime_multiplier
+        else:
+            active_mult = min(1.0, 1.0 / regime_multiplier)
+            
+        contribution = z * dyn_weight * active_mult
         total_score += contribution
         
         if val == 0:
@@ -527,7 +529,7 @@ final_trend_score = float(np.clip(raw_portfolio_score * 45.0, -100.0, 100.0))
 if circuit_triggered and final_trend_score > 0:
     final_trend_score = final_trend_score * 0.35 
 
-# --- 7. VOLATİLİTE HEDEFLEME & POZİSYON BOYUTLANDIRMA ---
+# --- 7. VOLATİLİTE HEDEFLEME & 5G ŞOK TIRAŞLAMASI ---
 ticker_asset_map = {
     "Altın (XAU)": "GC=F",
     "Gümüş (XAG)": "SI=F",
@@ -541,11 +543,18 @@ ticker_asset_map = {
 asset_prices = fetch_yf_data(ticker_asset_map[asset])
 if len(asset_prices) > 25:
     realized_vol_20 = float(asset_prices.pct_change().dropna().tail(20).std() * np.sqrt(252) * 100)
+    realized_vol_5 = float(asset_prices.pct_change().dropna().tail(5).std() * np.sqrt(252) * 100)
 else:
     realized_vol_20 = 15.0
+    realized_vol_5 = 15.0
 
 vol_scalar = target_vol_input / max(realized_vol_20, 5.0)
 raw_position_size = (final_trend_score / 100.0) * vol_scalar * 100.0
+
+# 5G/20G ANİ ŞOK TIRAŞI (Flash-Crash Kalkanı)
+vol_shock_ratio = realized_vol_5 / max(realized_vol_20, 1e-5)
+if vol_shock_ratio > 1.30 and raw_position_size > 0:
+    raw_position_size = raw_position_size * max(0.40, 1.0 / vol_shock_ratio)
 
 if circuit_triggered and raw_position_size > 0:
     raw_position_size = raw_position_size * 0.25 
@@ -561,7 +570,7 @@ with col1:
         mode = "gauge+number",
         value = final_trend_score,
         domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': f"{asset}<br>Structural Parity Skoru", 'font': {'size': 20}},
+        title = {'text': f"{asset}<br>Full-Depth Master Skoru", 'font': {'size': 20}},
         gauge = {
             'axis': {'range': [-100, 100], 'tickwidth': 1},
             'bar': {'color': "black"},
@@ -584,13 +593,13 @@ with col1:
         st.metric("Nakit / Likit Rezerv Payı", f"%{cash_allocation:.1f}", f"Gerçekleşen Vol: %{realized_vol_20:.1f}")
 
 with col2:
-    st.markdown("### 📊 Structural Parity 12 Faktörlü Tablo")
+    st.markdown("### 📊 Full-Depth 12 Faktörlü Tablo")
     df_results = pd.DataFrame(indicators_data)
     st.dataframe(df_results, use_container_width=True)
     
     st.markdown("""
-    **Kurumsal Structural Parity Rehberi:**
-    * **Tam Donanımlı 12 Gösterge:** 8 varlığın her biri 11-12 adet bağımsız yapısal faktör üzerinden eksiksiz değerlendirilir.
-    * **De-Dolarizasyon & Güneş Enerjisi:** Altın'a ABD Kamu Borcu (`GFDEBTN`), Gümüş'e ise Solar PV (`TAN`) ve `GC/SI` rasyosu eklenmiştir.
+    **Kurumsal Full-Depth Rehberi:**
+    * **Tam Donanımlı 12 Gösterge:** 8 varlığın her biri 11-12 adet derin makro katman üzerinden eksiksiz değerlendirilir.
+    * **Mutlak Benchmark Z-Skorları:** NFCI, Kredi Stresi ve VIX gibi göstergeler sahte negatif üretmez; gerçek iktisadi gücü yansıtır.
     * **Uzun Vadeli Akümülasyon / Dağıtım:** Aylar ve yıllar süren büyük trend döngüleri en yüksek matematiksel doğrulukla yakalanır.
     """)
