@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- 1. SAYFA VE API AYARLARI ---
-st.set_page_config(page_title="Makro Trend v32.0 (Precision Master Grade)", layout="wide")
+st.set_page_config(page_title="Makro Trend v33.0 (Continuum Master Grade)", layout="wide")
 
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
@@ -153,7 +153,10 @@ def fetch_g4_global_net_liquidity(days=2500):
     except:
         return fetch_fred_data('WALCL', days)
 
-# --- 3. BİRLEŞİK REJİM MOTORU ---
+# --- 3. KADEMELİ VE PÜRÜZSÜZ REJİM GEÇİŞ MOTORU (FUZZY CONTINUUM) ---
+def sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-np.clip(x, -12.0, 12.0)))
+
 def get_realtime_macro_regime():
     t10yie = fetch_fred_data('T10YIE') 
     real_rate = fetch_fred_data('DFII10') 
@@ -163,25 +166,54 @@ def get_realtime_macro_regime():
     hy_oas = fetch_fred_data('BAMLH0A0HYM2')
     
     if len(t10yie) < 60 or len(real_rate) < 60:
-        return "NOTR", "NÖTR PİYASA", 1.0, 2.30
+        return "GOLDILOCKS", "GOLDILOCKS (Gevşek Finansal Koşullar, Canlı Büyüme)", 1.25, 2.30, {"GOLDILOCKS": 1.0, "REFLASYON": 0.0, "STAGFLASYON": 0.0, "DEFLASYON": 0.0}
         
     lookback_inf = min(len(t10yie), 504)
     inf_dynamic_anchor = float(t10yie.tail(lookback_inf).mean() + (0.25 * t10yie.tail(lookback_inf).std()))
     
-    loose_financial_conditions = (not nfci.empty and nfci.iloc[-1] < -0.30) and (not hy_oas.empty and hy_oas.iloc[-1] < 3.20)
-    market_calm = not vix.empty and vix.iloc[-1] < 18.0
+    # Sürekli (Continuous) Faktör Sinyalleri
+    vix_val = vix.iloc[-1] if not vix.empty else 15.0
+    nfci_val = nfci.iloc[-1] if not nfci.empty else -0.50
+    hy_val = hy_oas.iloc[-1] if not hy_oas.empty else 2.80
+    icsa_val = icsa.iloc[-1] if not icsa.empty else 215000.0
+    t10_val = t10yie.iloc[-1] if not t10yie.empty else 2.30
     
-    labor_deteriorating = (not icsa.empty) and (icsa.iloc[-1] > 260000)
-    inf_pressure = (not t10yie.empty) and (t10yie.iloc[-1] > inf_dynamic_anchor) and not market_calm
-
-    if loose_financial_conditions and not labor_deteriorating and not inf_pressure:
-        return "GOLDILOCKS", "GOLDILOCKS (Gevşek Finansal Koşullar, Canlı Büyüme)", 1.25, inf_dynamic_anchor
-    elif not labor_deteriorating:
-        return "REFLASYON", "REFLASYON (Genişleyen Büyüme & Emtia Talebi)", 1.15, inf_dynamic_anchor
-    elif inf_pressure and labor_deteriorating:
-        return "STAGFLASYON", "STAGFLASYON (Yapışkan Enflasyon, Zayıflayan İstihdam)", 1.40, inf_dynamic_anchor
-    else:
-        return "DEFLASYON", "DEFLASYONİST DARALMA (Çöken Kredi, Resesyon Baskısı)", 1.40, inf_dynamic_anchor
+    # Pürüzsüz Olasılık Geçişleri (Sert Eşik Yok)
+    prob_loose_credit = sigmoid((-nfci_val - 0.30) / 0.15) * sigmoid((3.40 - hy_val) / 0.40)
+    prob_calm_market = sigmoid((19.0 - vix_val) / 2.5)
+    prob_growth = prob_loose_credit * sigmoid((250000.0 - icsa_val) / 25000.0)
+    prob_inf = sigmoid((t10_val - inf_dynamic_anchor) / 0.10)
+    prob_stress = (1.0 - prob_calm_market) * (1.0 - prob_loose_credit)
+    
+    # 4 Rejimin Kademeli Ağırlık Dağılımı
+    w_goldilocks = prob_growth * (1.0 - prob_inf) * prob_calm_market
+    w_reflation = prob_growth * prob_inf * prob_calm_market
+    w_stagflation = (1.0 - prob_growth + 0.1) * prob_inf * (1.0 - prob_calm_market + 0.1)
+    w_deflation = (1.0 - prob_growth) * (1.0 - prob_inf) * prob_stress
+    
+    total_regime_weight = w_goldilocks + w_reflation + w_stagflation + w_deflation + 1e-6
+    regime_probs = {
+        "GOLDILOCKS": float(w_goldilocks / total_regime_weight),
+        "REFLASYON": float(w_reflation / total_regime_weight),
+        "STAGFLASYON": float(w_stagflation / total_regime_weight),
+        "DEFLASYON": float(w_deflation / total_regime_weight)
+    }
+    
+    dominant_regime = max(regime_probs, key=regime_probs.get)
+    dom_pct = int(regime_probs[dominant_regime] * 100)
+    
+    # Pürüzsüz Harmanlanmış Çarpan
+    base_multipliers = {"GOLDILOCKS": 1.25, "REFLASYON": 1.15, "STAGFLASYON": 1.40, "DEFLASYON": 1.40}
+    blended_multiplier = sum(regime_probs[r] * base_multipliers[r] for r in base_multipliers)
+    
+    regime_titles = {
+        "GOLDILOCKS": f"GOLDILOCKS (%{dom_pct} - Canlı Büyüme & Gevşek Kredi)",
+        "REFLASYON": f"REFLASYON (%{dom_pct} - Genişleyen Emtia & Likidite)",
+        "STAGFLASYON": f"STAGFLASYON (%{dom_pct} - Yapışkan Enflasyon / Stres)",
+        "DEFLASYON": f"DEFLASYONİST DARALMA (%{dom_pct} - Sıkılaşma / Resesyon)"
+    }
+    
+    return dominant_regime, regime_titles[dominant_regime], blended_multiplier, inf_dynamic_anchor, regime_probs
 
 # --- 4. OTONOM ŞALTER MOTORU ---
 def check_systemic_circuit_breaker():
@@ -219,7 +251,18 @@ def check_systemic_circuit_breaker():
         
     return is_triggered, reasons
 
-# --- 5. HAKİKİ MAKRO BENCHMARK Z-SKOR MOTORU (ASİMETRİK VE YÖNSEL KALİBRE) ---
+# --- 5. HİBRİT BAYESYEN MAKRO ÇAPA MOTORU (YAPISAL KAYMAYA KARŞI ÖMÜRLÜK ZIRH) ---
+def get_adaptive_anchor(data_series, theoretical_mean, theoretical_std, lookback=1260):
+    if len(data_series) >= 252:
+        eff_lookback = min(len(data_series), lookback)
+        empirical_mean = float(data_series.tail(eff_lookback).mean())
+        empirical_std = float(data_series.tail(eff_lookback).std())
+        # %50 Teorik Standart + %50 5-Yıllık Gerçekleşen Çapa (Ömür Boyu Kalibrasyon)
+        mu_eff = 0.50 * theoretical_mean + 0.50 * empirical_mean
+        std_eff = 0.50 * theoretical_std + 0.50 * max(empirical_std, 1e-4)
+        return mu_eff, std_eff
+    return theoretical_mean, theoretical_std
+
 def process_indicator(data_series, indicator_name, invert=False):
     if isinstance(data_series, pd.DataFrame):
         data_series = data_series.iloc[:, 0]
@@ -232,40 +275,41 @@ def process_indicator(data_series, indicator_name, invert=False):
     
     current_val = float(data_series.iloc[-1])
     
-    # 1. MUTLAK İKTİSADİ VE PARASAL ÇAPALAR
+    # 5 YILLIK HİBRİT BAYESYEN ÇAPALARLA HESAPLAMA
     if "NFCI" in indicator_name:
-        # Chicago Fed NFCI: Denge = 0.0, Std = 0.50 (Negatif = Gevşek Kredi = BOĞA)
-        base_z = (0.0 - current_val) / 0.50
+        mu, std = get_adaptive_anchor(data_series, 0.0, 0.50)
+        base_z = (mu - current_val) / std
     elif "HY OAS" in indicator_name or "Kredi" in indicator_name:
+        mu, std = get_adaptive_anchor(data_series, 4.20, 1.50)
         if "Güvenli Liman" in indicator_name:
-            base_z = (current_val - 4.20) / 1.50 # Tahvil İçin: Spread açıldıkça güvenli liman boğası
+            base_z = (current_val - mu) / std
         else:
-            base_z = (4.20 - current_val) / 1.50 # Risk Varlıkları İçin: Dar spread = Güçlü bilanço = BOĞA
+            base_z = (mu - current_val) / std
     elif "VIX" in indicator_name:
-        base_z = (19.5 - current_val) / 6.0
+        mu, std = get_adaptive_anchor(data_series, 19.5, 6.0)
+        base_z = (mu - current_val) / std
     elif "MOVE" in indicator_name:
-        base_z = (90.0 - current_val) / 25.0
+        mu, std = get_adaptive_anchor(data_series, 90.0, 25.0)
+        base_z = (mu - current_val) / std
     elif "10Y Breakeven" in indicator_name or "5y5y" in indicator_name:
-        base_z = (current_val - 2.20) / 0.35
+        mu, std = get_adaptive_anchor(data_series, 2.20, 0.35)
+        base_z = (current_val - mu) / std
         if invert:
             base_z = -base_z
     elif "Reel Faiz" in indicator_name:
-        # 10Y TIPS: Yüksek reel faiz (>1.25%) getirisiz varlıklar ve hisse için İSKONTO BASKISIDIR (-Z)
-        base_z = (1.25 - current_val) / 0.80 
+        mu, std = get_adaptive_anchor(data_series, 1.25, 0.80)
+        base_z = (mu - current_val) / std 
         if invert:
             base_z = -base_z
     elif "Piyasa Faiz İndirim Makası" in indicator_name:
-        # EFFR - DGS2: Pozitif Değer = Fed'den İndirim Beklentisi = BOĞA (+Z)
         base_z = (current_val - 0.0) / 0.80
     elif "USD/JPY" in indicator_name or "Yen Carry" in indicator_name:
-        # YEN CARRY TRADE NON-LINEAR MODEL (155+ BoJ Müdahale Kalkanı)
         if current_val > 155.0:
-            # 155 üstünde her yükseliş ani unwind (pozisyon kapatma) riskidir -> Z törpülenir
-            base_z = 0.50 - ((current_val - 155.0) / 8.0) # 155'te +0.50, 159'da 0.0, 163'te -0.50
+            base_z = 0.50 - ((current_val - 155.0) / 8.0)
         elif current_val < 135.0:
-            base_z = (current_val - 135.0) / 15.0 # Yen güçlenmesi = Negatif carry
+            base_z = (current_val - 135.0) / 15.0
         else:
-            base_z = (current_val - 135.0) / 20.0 # 135-155 arası sağlıklı carry boğası
+            base_z = (current_val - 135.0) / 20.0
     elif "Stablecoin" in indicator_name:
         pct_90 = (data_series.pct_change(90).dropna().iloc[-1]) * 100 if len(data_series) > 90 else 5.0
         base_z = (pct_90 - 2.0) / 4.0
@@ -298,8 +342,8 @@ def process_indicator(data_series, indicator_name, invert=False):
     return z_score, current_val
 
 # --- 6. ARAYÜZ VE UYGULAMA ---
-st.title("🏛️ KÜRESEL MAKRO MODELİ (v32.0 - PRECISION MASTER)")
-st.markdown("**155+ Yen Carry Unwind Kalkanı, Doğrulanmış Sinyaller & Kademeli Pozisyonlama**")
+st.title("🏛️ KÜRESEL MAKRO MODELİ (v33.0 - CONTINUUM MASTER)")
+st.markdown("**Pürüzsüz Kademeli Rejim Geçişi (Fuzzy Blending) & 5 Yıllık Hibrit Bayesyen Çapa Mimarisi**")
 
 st.sidebar.header("VARLIK VE RİSK YÖNETİMİ")
 asset = st.sidebar.radio("Analiz Edilecek Varlık:", (
@@ -315,13 +359,13 @@ asset = st.sidebar.radio("Analiz Edilecek Varlık:", (
 
 target_vol_input = st.sidebar.slider("Hedef Portföy Volatilitesi (% Target Vol):", min_value=8.0, max_value=25.0, value=12.0, step=1.0)
 
-regime_code, regime_name, regime_multiplier, dynamic_inf_anchor = get_realtime_macro_regime()
+dominant_regime, regime_title, blended_multiplier, dynamic_inf_anchor, regime_probs = get_realtime_macro_regime()
 circuit_triggered, circuit_reasons = check_systemic_circuit_breaker()
 
 # Üst Bilgi Kartları
 col_info1, col_info2, col_info3 = st.columns(3)
 with col_info1:
-    st.metric("Aktif Piyasa Rejimi (Likidite/Büyüme)", regime_code, f"Çarpan: {regime_multiplier}x")
+    st.metric("Aktif Rejim (Kademeli Olasılık)", dominant_regime, f"Harman Çarpan: {blended_multiplier:.2f}x")
 with col_info2:
     if circuit_triggered:
         st.metric("Sistemik Risk Şalteri", "🚨 AKTİF (KORUMA MODU)", "Risk Azaltıldı", delta_color="inverse")
@@ -338,7 +382,7 @@ if circuit_triggered:
 indicators_data = []
 total_score = 0
 
-with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
+with st.spinner(f"{asset} için Pürüzsüz Rejim Harmanı Hesaplanıyor..."):
     
     dgs2 = fetch_fred_data('DGS2')
     effr = fetch_fred_data('EFFR')
@@ -365,8 +409,8 @@ with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
     if asset == "Altın (XAU)":
         gold_oil_ratio = safe_ratio(fetch_yf_data('GC=F'), fetch_yf_data('CL=F'))
         metrics_spec = [
-            ("G4 Küresel Süper Likidite (Fed+ECB+BoJ)", g4_liq, {"GOLDILOCKS": 0.18, "REFLASYON": 0.17, "STAGFLASYON": 0.16, "DEFLASYON": 0.18}, False),
-            ("10Y Breakeven Enflasyon Genişlemesi", t10yie, {"GOLDILOCKS": 0.16, "REFLASYON": 0.18, "STAGFLASYON": 0.18, "DEFLASYON": 0.08}, False),
+            ("G4 Küresel Süper Likidite (Fed+ECB+BoJ)", g4_liq, {"GOLDILOCKS": 0.20, "REFLASYON": 0.20, "STAGFLASYON": 0.18, "DEFLASYON": 0.20}, False),
+            ("10Y Breakeven Enflasyon Genişlemesi", t10yie, {"GOLDILOCKS": 0.18, "REFLASYON": 0.20, "STAGFLASYON": 0.24, "DEFLASYON": 0.08}, False),
             ("ABD Kamu Borcu / De-Dolarizasyon", us_debt, {"GOLDILOCKS": 0.16, "REFLASYON": 0.16, "STAGFLASYON": 0.18, "DEFLASYON": 0.14}, False),
             ("Piyasa Faiz İndirim Makası (EFFR - DGS2)", fed_easing_spread, {"GOLDILOCKS": 0.12, "REFLASYON": 0.12, "STAGFLASYON": 0.08, "DEFLASYON": 0.16}, False),
             ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.10, "REFLASYON": 0.10, "STAGFLASYON": 0.08, "DEFLASYON": 0.12}, False),
@@ -441,7 +485,7 @@ with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
             ("Reel Faiz İskonto Çıpası (10Y TIPS)", tips_real, {"GOLDILOCKS": 0.05, "REFLASYON": 0.05, "STAGFLASYON": 0.07, "DEFLASYON": 0.06}, False),
             ("Dolar Endeksi Zayıflığı (DXY)", dxy, {"GOLDILOCKS": 0.04, "REFLASYON": 0.04, "STAGFLASYON": 0.06, "DEFLASYON": 0.06}, True),
             ("Yüksek Getirili Kredi Stresi (HY OAS)", hy_oas, {"GOLDILOCKS": 0.03, "REFLASYON": 0.03, "STAGFLASYON": 0.05, "DEFLASYON": 0.04}, False),
-            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", g4_liq.diff(5), {"GOLDILOCKS": 0.02, "REFLASYON": 0.02, "STAGFLASYON": 0.03, "DEFLASYON": 0.02}, False),
+            ("Hızlı Likidite İvmesi (5G Hazine Hızı)", g4_liq.diff(5), {"GOLDILOCKS": 0.02, "REFLASYON": 0.02, "STAGFLASYON": 0.03, "DEFLASYON": 0.03}, False),
             ("Hazine Süre/Borçlanma Riski (30Y Yield)", dgs30, {"GOLDILOCKS": 0.01, "REFLASYON": 0.01, "STAGFLASYON": 0.02, "DEFLASYON": 0.02}, True),
         ]
     elif asset == "Ham Petrol (WTI)":
@@ -505,10 +549,13 @@ with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
             ("Dolar Endeksi Zayıflığı (DXY)", dxy, {"GOLDILOCKS": 0.02, "REFLASYON": 0.02, "STAGFLASYON": 0.01, "DEFLASYON": 0.02}, False),
         ]
 
-    # --- REJİME GÖRE NORMALİZE EDİLMİŞ DİNAMİK AĞIRLIK HESAPLAMA ---
-    target_regime = regime_code if regime_code in ["GOLDILOCKS", "REFLASYON", "STAGFLASYON", "DEFLASYON"] else "GOLDILOCKS"
-    
-    raw_weights = [item[2].get(target_regime, 0.10) for item in metrics_spec]
+    # --- PÜRÜZSÜZ HARMANLANMIŞ DİNAMİK AĞIRLIK MOTORU (FUZZY CONTINUUM) ---
+    raw_weights = []
+    for item in metrics_spec:
+        # 4 Rejimin Kademeli Olasılıklarıyla Çarpılmış Pürüzsüz Ağırlık
+        blended_w = sum(regime_probs[r] * item[2].get(r, 0.10) for r in regime_probs)
+        raw_weights.append(blended_w)
+        
     total_w = sum(raw_weights)
     dyn_weights = [w / total_w for w in raw_weights]
 
@@ -518,11 +565,11 @@ with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
         
         z, val = process_indicator(data_series, name, invert)
         
-        # ASİMETRİK ÇARPAN KORUMASI
+        # ASİMETRİK ÇARPAN KORUMASI (Drawdown Sönümleyici)
         if z >= 0:
-            active_mult = regime_multiplier
+            active_mult = blended_multiplier
         else:
-            active_mult = min(1.0, 1.0 / regime_multiplier)
+            active_mult = min(1.0, 1.0 / blended_multiplier)
             
         contribution = z * dyn_weight * active_mult
         total_score += contribution
@@ -540,7 +587,7 @@ with st.spinner(f"{asset} için Doğrulanmış Faktör Seti Hesaplanıyor..."):
             "Makro Gösterge (Katman)": name,
             "Güncel Değer": display_str,
             "Makro İvme (Z-Skor)": round(z, 2),
-            "Rejim Ağırlığı": f"%{dyn_weight * 100:.1f}",
+            "Pürüzsüz Ağırlık": f"%{dyn_weight * 100:.1f}",
             "Modele Net Katkı": round(contribution, 3)
         })
 
@@ -575,7 +622,6 @@ vol_scalar = target_vol_input / max(realized_vol_20, 5.0)
 # KURUMSAL KADEMELİ İNANÇ EĞRİSİ (Sizing Tıkanıklığı Giderildi)
 abs_score = abs(final_trend_score)
 if abs_score > 5.0:
-    # Trend teyit edildiğinde sermaye aktif olarak trende sürülür
     conviction_pct = (0.20 + 0.80 * ((abs_score / 100.0) ** 0.70)) * 100.0
     raw_position_size = np.sign(final_trend_score) * conviction_pct * min(vol_scalar, 1.25)
 else:
@@ -600,7 +646,7 @@ with col1:
         mode = "gauge+number",
         value = final_trend_score,
         domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': f"{asset}<br>Precision Master Skoru", 'font': {'size': 20}},
+        title = {'text': f"{asset}<br>Continuum Master Skoru", 'font': {'size': 20}},
         gauge = {
             'axis': {'range': [-100, 100], 'tickwidth': 1},
             'bar': {'color': "black"},
@@ -623,13 +669,13 @@ with col1:
         st.metric("Nakit / Likit Rezerv Payı", f"%{cash_allocation:.1f}", f"Gerçekleşen Vol: %{realized_vol_20:.1f}")
 
 with col2:
-    st.markdown("### 📊 Precision Master 12 Faktörlü Tablo")
+    st.markdown("### 📊 Continuum Master 12 Faktörlü Tablo")
     df_results = pd.DataFrame(indicators_data)
     st.dataframe(df_results, use_container_width=True)
     
     st.markdown("""
-    **Kurumsal v32.0 Precision Rehberi:**
-    * **155+ Yen Carry Unwind Kalkanı:** USD/JPY aşırı uçlara gittiğinde (155+) model patlama ve BoJ müdahale riskini algılayarak skoru güvene alır.
-    * **Stablecoin 90G Büyüme:** Kripto M2 likidite basımı son 90 günlük net akım üzerinden tam güçle modele dahil edilmiştir.
-    * **Kademeli Pozisyonlama Eğrisi:** Boğa trendlerinde sermaye nakde hapsolmaz; volatilite sınırları dahilinde aktif olarak trende (%45-%70) sürülür.
+    **Kurumsal v33.0 Continuum Rehberi:**
+    * **Pürüzsüz Rejim Geçişi (Fuzzy Blending):** VIX veya NFCI sınırlarında sert zıplama olmaz; 4 rejimin olasılıkları ağırlıkları pürüzsüz harmanlar.
+    * **5 Yıllık Hibrit Bayesyen Çapa:** Göstergeler 1260 günlük kayan ortalamayla kendini kalibre ederek 15 yıl sonra dahi parametre eskimesi yaşamaz.
+    * **Kademeli Pozisyonlama & Asimetrik Çarpan:** Trend getiriyi büyütürken, olası kayıplar 0.80x sönümleyici ile korunur.
     """)
