@@ -1,6 +1,7 @@
 Configuration,Confirmed Switches,Avg Duration (Days),Whipsaw Reduction,All Shocks Detected,Risk-On %
-Base Spec (Optimal),19,94.7,%93.0,✅ EVET,%10.06
-Aggressive Triggers (Lower Z),23,78.3,%93.2,✅ EVET,%11.22
-Conservative Triggers (Higher Z),20,90.0,%91.0,✅ EVET,%9.94
-1-Week Hysteresis (Fast),21,85.7,%92.3,✅ EVET,%9.44
-3-Week Hysteresis (Slow),19,94.7,%93.0,✅ EVET,%10.67
+Base Spec (Optimal DXY Z > 0.35),23,78.3,%89.0,✅ EVET,%11.22
+DXY Tight Confirmation (Z > 0.60),23,78.3,%88.8,✅ EVET,%11.22
+Aggressive Triggers (Lower Z),27,66.7,%88.2,✅ EVET,%11.22
+Conservative Triggers (Higher Z),21,85.7,%88.2,✅ EVET,%11.22
+1-Week Hysteresis (Fast),23,78.3,%89.0,✅ EVET,%10.94
+3-Week Hysteresis (Slow),23,78.3,%89.0,✅ EVET,%11.5

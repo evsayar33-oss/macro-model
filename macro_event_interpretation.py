@@ -46,6 +46,7 @@ class RegimeThresholdConfig:
     # Regime 3: Reel Faiz Şoku
     regime3_dfii10_z_thresh: float = 1.5
     regime3_t10yie_z_thresh: float = 0.5
+    regime3_dxy_z_thresh: float = 0.35
     
     # Regime 4: Kredi Temerrüt Baskısı
     regime4_hy_z_thresh: float = 2.0
@@ -201,6 +202,17 @@ class MacroEventInterpretationSystem:
             features['dfii10_chg1_z'] = calc_rolling_zscore(chg1_dfii10, cfg.rolling_window_52w, cfg.min_periods_52w)
         else:
             features['dfii10_chg1_z'] = 0.0
+
+        # DXY Indicator for Regime 3
+        if 'dxy' in df:
+            features['dxy_level_z'] = calc_rolling_zscore(df['dxy'], cfg.rolling_window_52w, cfg.min_periods_52w)
+            features['dxy_chg5_z'] = calc_rolling_zscore(df['dxy'].diff(5), cfg.rolling_window_52w, cfg.min_periods_52w)
+        elif 'dtwex' in df:
+            features['dxy_level_z'] = features.get('dtwex_level_z', calc_rolling_zscore(df['dtwex'], cfg.rolling_window_52w, cfg.min_periods_52w))
+            features['dxy_chg5_z'] = features.get('dtwex_chg5_z', calc_rolling_zscore(df['dtwex'].diff(5), cfg.rolling_window_52w, cfg.min_periods_52w))
+        else:
+            features['dxy_level_z'] = 0.0
+            features['dxy_chg5_z'] = 0.0
             
         if 't10yie' in df:
             features['t10yie_z'] = calc_rolling_zscore(df['t10yie'], cfg.rolling_window_52w, cfg.min_periods_52w)
@@ -270,9 +282,10 @@ class MacroEventInterpretationSystem:
         # --- REGIME 3 ---
         r3_t1 = row['dfii10_chg1_z'] > cfg.regime3_dfii10_z_thresh
         r3_t2 = row['t10yie_z'] < cfg.regime3_t10yie_z_thresh
-        r3_triggers_met = r3_t1 and r3_t2
+        r3_t3 = row.get('dxy_level_z', 0.0) > cfg.regime3_dxy_z_thresh
+        r3_triggers_met = r3_t1 and r3_t2 and r3_t3
         r3_active = r3_triggers_met
-        r3_main_z = abs(row['dfii10_chg1_z'])
+        r3_main_z = max(abs(row['dfii10_chg1_z']), abs(row.get('dxy_level_z', 0.0)))
         
         # Sub-types for Regime 3
         d2 = row.get('delta_dgs2', 0.0)
@@ -387,6 +400,7 @@ class MacroEventInterpretationSystem:
                        'c1': (float(row['basket_ret5d_z']), cfg.regime2_basket_z_thresh, bool(r2_c1))},
                 'r3': {'t1': (float(row['dfii10_chg1_z']), cfg.regime3_dfii10_z_thresh, bool(r3_t1)),
                        't2': (float(row['t10yie_z']), cfg.regime3_t10yie_z_thresh, bool(r3_t2)),
+                       't3': (float(row.get('dxy_level_z', 0.0)), cfg.regime3_dxy_z_thresh, bool(r3_t3)),
                        'subtype': r3_subtype},
                 'r4': {'t1': (float(row['hy_oas_z']), cfg.regime4_hy_z_thresh, bool(r4_t1)),
                        't2': (float(row['hy_oas_slope10']), cfg.regime4_hy_slope_thresh, bool(r4_t2)),
@@ -658,11 +672,13 @@ def render_macro_scorecard_ui(st_obj, eval_details: Dict[str, Any], confirmed_id
         r3 = det.get('r3', {})
         t1 = r3.get('t1', (0.0, 1.5, False))
         t2 = r3.get('t2', (0.0, 0.5, False))
+        t3 = r3.get('t3', (0.0, 0.35, False))
         st_r3 = r3.get('subtype', 'N/A')
         
         df_r3 = pd.DataFrame([
-            {"Rol": "Ana Tetikleyici (AND)", "Gösterge": "Reel Faiz (FRED:DFII10 10Y TIPS)", "Formül": "1 Günlük Değişim 52H Z-Skoru", "Güncel Z / Değer": f"{t1[0]:.2f}", "Eşik Şartı": "Z > 1.50", "Durum": "✅ TETİKLENDİ" if t1[2] else "❌ SAĞLANMADI"},
-            {"Rol": "Ayrıştırıcı (AND)", "Gösterge": "Breakeven Enflasyon (FRED:T10YIE)", "Formül": "52H Seviye Z-Skoru", "Güncel Z / Değer": f"{t2[0]:.2f}", "Eşik Şartı": "Z < 0.50", "Durum": "✅ SAĞLANDI" if t2[2] else "❌ SAĞLANMADI"},
+            {"Rol": "Ana Tetikleyici (AND)", "Gösterge": "Reel Faiz (FRED:DFII10 10Y TIPS)", "Formül": "1 Günlük Değişim 52H Z-Skoru", "Güncel Z / Değer": f"{t1[0]:.2f}", "Eşik Şartı": f"Z > {t1[1]:.2f}", "Durum": "✅ TETİKLENDİ" if t1[2] else "❌ SAĞLANMADI"},
+            {"Rol": "Ayrıştırıcı (AND)", "Gösterge": "Breakeven Enflasyon (FRED:T10YIE)", "Formül": "52H Seviye Z-Skoru", "Güncel Z / Değer": f"{t2[0]:.2f}", "Eşik Şartı": f"Z < {t2[1]:.2f}", "Durum": "✅ SAĞLANDI" if t2[2] else "❌ SAĞLANMADI"},
+            {"Rol": "Dolar Teyidi (AND)", "Gösterge": "Dolar Endeksi (DXY / DTWEX)", "Formül": "52H Seviye Z-Skoru", "Güncel Z / Değer": f"{t3[0]:.2f}", "Eşik Şartı": f"Z > {t3[1]:.2f}", "Durum": "✅ TEYİT EDİLDİ" if t3[2] else "❌ SAĞLANMADI"},
             {"Rol": "Eğri Alt-Tipi", "Gösterge": "Getiri Eğrisi (DGS2 & DGS10 Dinamiği)", "Formül": "ΔDGS2 vs ΔDGS10", "Güncel Z / Değer": st_r3, "Eşik Şartı": "Formül Kuralı", "Durum": "ℹ️ AKTİF TİP"}
         ])
         st_obj.dataframe(df_r3, use_container_width=True)

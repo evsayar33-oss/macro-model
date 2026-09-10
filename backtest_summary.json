@@ -2,26 +2,27 @@
   "total_evaluated_days": 1800,
   "mutual_exclusivity_verified": true,
   "regime_distribution_pct": {
-    "REJIMSIZ_GECIS": 71.28,
-    "Küresel Likidite Rallisi (Risk-On)": 10.06,
-    "Kredi Temerrüt Baskısı": 9.33,
-    "Küresel Enflasyon & Stagflasyon Şoku": 3.61,
-    "Sistemik Likidite Şoku & Carry Çöküşü": 2.89,
-    "Reel Faiz Şoku": 2.83
+    "REJIMSIZ_GECIS": 69.83,
+    "Küresel Likidite Rallisi (Risk-On)": 11.22,
+    "Kredi Temerrüt Baskısı": 8.28,
+    "Sistemik Likidite Şoku & Carry Çöküşü": 4.5,
+    "Küresel Enflasyon & Stagflasyon Şoku": 3.83,
+    "Reel Faiz Şoku": 2.33
   },
-  "candidate_avg_duration_days": 6.6,
-  "confirmed_avg_duration_days": 94.7,
-  "raw_candidate_switches": 273,
-  "hysteresis_confirmed_switches": 19,
-  "whipsaw_noise_reduction_pct": 93.0,
+  "candidate_avg_duration_days": 8.6,
+  "confirmed_avg_duration_days": 78.3,
+  "raw_candidate_switches": 209,
+  "hysteresis_confirmed_switches": 23,
+  "whipsaw_noise_reduction_pct": 89.0,
   "conflict_resolutions": {
-    "total_conflicts_arbitrated": 50,
+    "total_conflicts_arbitrated": 61,
     "special_regime_1_vs_3_resolutions": 0,
-    "general_max_abs_z_resolutions": 50
+    "general_max_abs_z_resolutions": 61
   },
   "historical_phase_detections": {
     "2020_Covid_Liquidity_Shock": {
       "detected_regimes": [
+        "REJIMSIZ_GECIS",
         "Sistemik Likidite Şoku & Carry Çöküşü",
         "Kredi Temerrüt Baskısı"
       ],
@@ -29,7 +30,6 @@
     },
     "2020_2021_Global_Liquidity_Rally": {
       "detected_regimes": [
-        "Reel Faiz Şoku",
         "REJIMSIZ_GECIS",
         "Küresel Likidite Rallisi (Risk-On)"
       ],
@@ -37,15 +37,18 @@
     },
     "2022_Inflation_Commodity_Shock": {
       "detected_regimes": [
-        "Küresel Enflasyon & Stagflasyon Şoku",
-        "REJIMSIZ_GECIS"
+        "REJIMSIZ_GECIS",
+        "Kredi Temerrüt Baskısı",
+        "Sistemik Likidite Şoku & Carry Çöküşü",
+        "Küresel Enflasyon & Stagflasyon Şoku"
       ],
       "success": true
     },
     "2022_Real_Rate_Shock": {
       "detected_regimes": [
         "Reel Faiz Şoku",
-        "REJIMSIZ_GECIS"
+        "REJIMSIZ_GECIS",
+        "Sistemik Likidite Şoku & Carry Çöküşü"
       ],
       "success": true
     },
@@ -56,5 +59,103 @@
       ],
       "success": true
     }
-  }
+  },
+  "multi_asset_dynamic_backtest": [
+    {
+      "Varlık": "Altın (XAU)",
+      "Statik Sharpe": 3.35,
+      "Dinamik Sharpe": 3.58,
+      "Sharpe Artışı": "+0.23",
+      "Statik MaxDD": "%-10.9",
+      "Dinamik MaxDD": "%-21.2",
+      "MaxDD İyileşmesi": "+%-10.2",
+      "Statik Getiri (Yıllık)": "%13.8",
+      "Dinamik Getiri (Yıllık)": "%19.4",
+      "Yönsel İsabet Oranı": "%57.0"
+    },
+    {
+      "Varlık": "Gümüş (XAG)",
+      "Statik Sharpe": 3.67,
+      "Dinamik Sharpe": 4.31,
+      "Sharpe Artışı": "+0.64",
+      "Statik MaxDD": "%-19.8",
+      "Dinamik MaxDD": "%-27.2",
+      "MaxDD İyileşmesi": "+%-7.4",
+      "Statik Getiri (Yıllık)": "%33.1",
+      "Dinamik Getiri (Yıllık)": "%49.3",
+      "Yönsel İsabet Oranı": "%56.8"
+    },
+    {
+      "Varlık": "Nasdaq 100 (NQ)",
+      "Statik Sharpe": 3.62,
+      "Dinamik Sharpe": 4.09,
+      "Sharpe Artışı": "+0.47",
+      "Statik MaxDD": "%-20.0",
+      "Dinamik MaxDD": "%-7.4",
+      "MaxDD İyileşmesi": "+%12.6",
+      "Statik Getiri (Yıllık)": "%28.1",
+      "Dinamik Getiri (Yıllık)": "%20.0",
+      "Yönsel İsabet Oranı": "%59.5"
+    },
+    {
+      "Varlık": "S&P 500 (SPX)",
+      "Statik Sharpe": 3.03,
+      "Dinamik Sharpe": 3.29,
+      "Sharpe Artışı": "+0.26",
+      "Statik MaxDD": "%-19.0",
+      "Dinamik MaxDD": "%-9.0",
+      "MaxDD İyileşmesi": "+%10.0",
+      "Statik Getiri (Yıllık)": "%24.1",
+      "Dinamik Getiri (Yıllık)": "%15.9",
+      "Yönsel İsabet Oranı": "%57.9"
+    },
+    {
+      "Varlık": "Kripto (BTC)",
+      "Statik Sharpe": 3.31,
+      "Dinamik Sharpe": 3.03,
+      "Sharpe Artışı": "+-0.28",
+      "Statik MaxDD": "%-26.5",
+      "Dinamik MaxDD": "%-28.8",
+      "MaxDD İyileşmesi": "+%-2.4",
+      "Statik Getiri (Yıllık)": "%50.9",
+      "Dinamik Getiri (Yıllık)": "%37.4",
+      "Yönsel İsabet Oranı": "%55.8"
+    },
+    {
+      "Varlık": "Ham Petrol (WTI)",
+      "Statik Sharpe": 1.02,
+      "Dinamik Sharpe": 1.7,
+      "Sharpe Artışı": "+0.68",
+      "Statik MaxDD": "%-13.2",
+      "Dinamik MaxDD": "%-23.8",
+      "MaxDD İyileşmesi": "+%-10.5",
+      "Statik Getiri (Yıllık)": "%10.2",
+      "Dinamik Getiri (Yıllık)": "%22.5",
+      "Yönsel İsabet Oranı": "%52.0"
+    },
+    {
+      "Varlık": "Bakır (HG)",
+      "Statik Sharpe": 0.87,
+      "Dinamik Sharpe": 0.98,
+      "Sharpe Artışı": "+0.11",
+      "Statik MaxDD": "%-11.3",
+      "Dinamik MaxDD": "%-13.4",
+      "MaxDD İyileşmesi": "+%-2.1",
+      "Statik Getiri (Yıllık)": "%6.0",
+      "Dinamik Getiri (Yıllık)": "%7.4",
+      "Yönsel İsabet Oranı": "%58.7"
+    },
+    {
+      "Varlık": "ABD Tahvili / Faiz (TLT)",
+      "Statik Sharpe": -1.56,
+      "Dinamik Sharpe": -1.53,
+      "Sharpe Artışı": "+0.03",
+      "Statik MaxDD": "%-44.1",
+      "Dinamik MaxDD": "%-47.3",
+      "MaxDD İyileşmesi": "+%-3.2",
+      "Statik Getiri (Yıllık)": "%-5.1",
+      "Dinamik Getiri (Yıllık)": "%-6.1",
+      "Yönsel İsabet Oranı": "%46.2"
+    }
+  ]
 }
