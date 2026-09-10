@@ -1,0 +1,60 @@
+{
+  "total_evaluated_days": 1800,
+  "mutual_exclusivity_verified": true,
+  "regime_distribution_pct": {
+    "REJIMSIZ_GECIS": 71.28,
+    "Küresel Likidite Rallisi (Risk-On)": 10.06,
+    "Kredi Temerrüt Baskısı": 9.33,
+    "Küresel Enflasyon & Stagflasyon Şoku": 3.61,
+    "Sistemik Likidite Şoku & Carry Çöküşü": 2.89,
+    "Reel Faiz Şoku": 2.83
+  },
+  "candidate_avg_duration_days": 6.6,
+  "confirmed_avg_duration_days": 94.7,
+  "raw_candidate_switches": 273,
+  "hysteresis_confirmed_switches": 19,
+  "whipsaw_noise_reduction_pct": 93.0,
+  "conflict_resolutions": {
+    "total_conflicts_arbitrated": 50,
+    "special_regime_1_vs_3_resolutions": 0,
+    "general_max_abs_z_resolutions": 50
+  },
+  "historical_phase_detections": {
+    "2020_Covid_Liquidity_Shock": {
+      "detected_regimes": [
+        "Sistemik Likidite Şoku & Carry Çöküşü",
+        "Kredi Temerrüt Baskısı"
+      ],
+      "success": true
+    },
+    "2020_2021_Global_Liquidity_Rally": {
+      "detected_regimes": [
+        "Reel Faiz Şoku",
+        "REJIMSIZ_GECIS",
+        "Küresel Likidite Rallisi (Risk-On)"
+      ],
+      "success": true
+    },
+    "2022_Inflation_Commodity_Shock": {
+      "detected_regimes": [
+        "Küresel Enflasyon & Stagflasyon Şoku",
+        "REJIMSIZ_GECIS"
+      ],
+      "success": true
+    },
+    "2022_Real_Rate_Shock": {
+      "detected_regimes": [
+        "Reel Faiz Şoku",
+        "REJIMSIZ_GECIS"
+      ],
+      "success": true
+    },
+    "2024_JPY_Carry_Unwind": {
+      "detected_regimes": [
+        "REJIMSIZ_GECIS",
+        "Sistemik Likidite Şoku & Carry Çöküşü"
+      ],
+      "success": true
+    }
+  }
+}
