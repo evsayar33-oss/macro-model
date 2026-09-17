@@ -28,8 +28,10 @@ class RegimeThresholdConfig:
     rolling_window_52w: int = 252
     min_periods_52w: int = 60
     hysteresis_period_days: int = 10     # 2-week hysteresis window (trading days)
-    shock_confirmation_days: int = 4     # Fast confirmation for sudden systemic shock triggers
+    shock_confirmation_days: int = 4     # Standard confirmation for shock candidates
     risk_on_confirmation_days: int = 7   # Confirmation for structural liquidity rally
+    extreme_shock_z: float = 2.50        # Rare multi-factor shock fast-track threshold
+    extreme_shock_confirmation_days: int = 1
     
     # Regime 1: Küresel Enflasyon & Stagflasyon Şoku
     regime1_oil_z_thresh: float = 1.5
@@ -109,6 +111,214 @@ def calc_rolling_correlation(s1: pd.Series, s2: pd.Series, window: int = 60, min
     return corr
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    """Converts scalar-like values to finite float without leaking NaN/Inf into the model."""
+    try:
+        value = float(value)
+        return value if np.isfinite(value) else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _sigmoid01(x: float, scale: float = 1.0) -> float:
+    """Stable 0..1 sigmoid used by the continuous regime layer."""
+    scale = max(float(scale), 1e-6)
+    return float(1.0 / (1.0 + np.exp(-np.clip(float(x) / scale, -12.0, 12.0))))
+
+
+def _softmax(scores: Dict[str, float], temperature: float = 1.0) -> Dict[str, float]:
+    """Numerically stable softmax over regime logits."""
+    t = max(float(temperature), 1e-6)
+    keys = list(scores.keys())
+    vals = np.asarray([_safe_float(scores[k]) / t for k in keys], dtype=float)
+    vals -= np.max(vals)
+    exps = np.exp(np.clip(vals, -50.0, 50.0))
+    denom = float(exps.sum()) or 1.0
+    return {k: float(v / denom) for k, v in zip(keys, exps)}
+
+
+def compute_continuum_regime_state(
+    row: Optional[pd.Series],
+    confirmed_regime_id: int = 0,
+    candidate_regime_id: int = 0,
+    in_transition: bool = False,
+) -> Dict[str, Any]:
+    """
+    Event-aware continuous regime classifier.
+
+    Unlike the old Continuum implementation, this layer consumes the same
+    normalized feature row as the deterministic engine, so commodity shocks,
+    real-rate shocks, credit stress, liquidity and volatility cannot silently
+    bypass the active regime calculation.
+    """
+    if row is None or len(row) == 0:
+        return {
+            'dominant_regime': 'GOLDILOCKS',
+            'regime_title': 'GOLDILOCKS (%100 - Varsayılan)',
+            'blended_multiplier': 1.00,
+            'inflation_anchor': 0.0,
+            'regime_probs': {'GOLDILOCKS': 1.0, 'REFLASYON': 0.0, 'STAGFLASYON': 0.0, 'DEFLASYON': 0.0},
+            'diagnostics': {},
+        }
+
+    get = lambda key, default=0.0: _safe_float(row.get(key, default), default)
+
+    # Core continuous state variables, all dimensionless or percentile-normalized.
+    inflation = _sigmoid01(get('t10yie_z') - 0.10, 0.65)
+    commodity = _sigmoid01(max(get('commodity_impulse_z'), get('oil_ret20_z'), 0.80 * get('oil_ret5_z')) - 0.10, 0.70)
+    real_rate = _sigmoid01(get('dfii10_chg1_z') - 0.35, 0.70)
+    dollar_pressure = _sigmoid01(get('dxy_chg5_z') + get('dxy_level_z') * 0.35, 0.85)
+    credit_stress = _sigmoid01((0.70 * get('hy_oas_z') + 0.30 * get('ig_oas_z')) - 0.15, 0.85)
+    equity_stress = _sigmoid01(get('vix_level_z') - 0.35, 0.85)
+    bond_stress = _sigmoid01(get('move_pctl252') / 25.0 - 2.0, 0.90)
+    risk_asset_stress = _sigmoid01(-get('basket_ret5d_z') - 0.20, 0.90)
+    financial_conditions_stress = _sigmoid01(get('nfci_z') - 0.10, 0.80)
+    liquidity = _sigmoid01(get('ndl_z'), 0.80)
+    employment_health = _sigmoid01(-get('icsa_level_z'), 0.80)
+    trade_growth = _sigmoid01(get('bdi_level_z'), 1.00)
+
+    systemic_stress = float(np.clip(
+        0.32 * credit_stress
+        + 0.24 * equity_stress
+        + 0.16 * bond_stress
+        + 0.14 * risk_asset_stress
+        + 0.10 * financial_conditions_stress
+        + 0.06 * (1.0 - liquidity),
+        0.0, 1.0
+    ))
+    growth = float(np.clip(
+        0.45 * employment_health + 0.35 * trade_growth + 0.20 * liquidity,
+        0.0, 1.0
+    ))
+
+    # Regime logits: these encode relationships, not hard boundaries.
+    logits = {
+        'GOLDILOCKS': (
+            1.80 * growth
+            + 1.35 * liquidity
+            + 0.90 * (1.0 - systemic_stress)
+            - 0.90 * inflation
+            - 0.65 * commodity
+            - 0.55 * real_rate
+        ),
+        'REFLASYON': (
+            1.30 * commodity
+            + 1.10 * inflation
+            + 0.90 * liquidity
+            + 0.45 * growth
+            - 0.85 * systemic_stress
+            - 0.35 * real_rate
+        ),
+        'STAGFLASYON': (
+            1.55 * commodity
+            + 1.25 * inflation
+            + 1.25 * systemic_stress
+            + 0.65 * real_rate
+            + 0.35 * dollar_pressure
+            - 0.90 * growth
+            - 0.45 * liquidity
+        ),
+        'DEFLASYON': (
+            1.65 * systemic_stress
+            + 1.10 * real_rate
+            + 0.55 * dollar_pressure
+            + 0.55 * (1.0 - liquidity)
+            - 1.05 * inflation
+            - 0.80 * commodity
+            - 0.75 * growth
+        ),
+    }
+
+    # Deterministic event bridge: the continuous layer must react to the same
+    # confirmed/candidate event instead of working as an unrelated model.
+    regime_overlay = {k: 0.0 for k in logits}
+    overlays = {
+        1: {'STAGFLASYON': 2.20, 'REFLASYON': 0.85},
+        2: {'DEFLASYON': 2.30, 'STAGFLASYON': 0.55},
+        3: {'DEFLASYON': 1.55, 'STAGFLASYON': 0.95},
+        4: {'DEFLASYON': 2.35, 'STAGFLASYON': 0.55},
+        5: {'GOLDILOCKS': 1.25, 'REFLASYON': 0.95},
+    }
+
+    if confirmed_regime_id in overlays:
+        for key, value in overlays[confirmed_regime_id].items():
+            regime_overlay[key] += value
+
+    # Candidate shock/rally gets a smaller boost while hysteresis is pending.
+    if in_transition and candidate_regime_id in overlays and candidate_regime_id != confirmed_regime_id:
+        transition_strength = 0.55 if candidate_regime_id in (1, 2, 3, 4) else 0.35
+        for key, value in overlays[candidate_regime_id].items():
+            regime_overlay[key] += value * transition_strength
+
+    adjusted_logits = {k: logits[k] + regime_overlay[k] for k in logits}
+    probs = _softmax(adjusted_logits, temperature=0.55)
+
+    # Explicit rare-event guardrails. If a very strong commodity/inflation
+    # shock or systemic shock is present, do not allow the softmax to hide it.
+    commodity_event = max(get('commodity_impulse_z'), get('oil_ret20_z'), 0.80 * get('oil_ret5_z'))
+    real_rate_event = get('dfii10_chg1_z')
+    stress_event = max(get('vix_level_z'), get('hy_oas_z'), get('ig_oas_z'))
+
+    if commodity_event >= 2.20 and inflation >= 0.62:
+        probs = {k: float(v) * 0.55 for k, v in probs.items()}
+        probs['STAGFLASYON'] += 0.28
+        probs['REFLASYON'] += 0.17
+    elif commodity_event >= 1.80:
+        probs = {k: float(v) * 0.70 for k, v in probs.items()}
+        probs['REFLASYON'] += 0.18
+        probs['STAGFLASYON'] += 0.12
+
+    if real_rate_event >= 2.20 and get('dxy_chg5_z') > 0.20:
+        probs = {k: float(v) * 0.70 for k, v in probs.items()}
+        probs['DEFLASYON'] += 0.20
+        if inflation > 0.55:
+            probs['STAGFLASYON'] += 0.12
+
+    if stress_event >= 2.50 and systemic_stress >= 0.65:
+        probs = {k: float(v) * 0.65 for k, v in probs.items()}
+        probs['DEFLASYON'] += 0.25
+        probs['STAGFLASYON'] += 0.10
+
+    total = sum(probs.values()) or 1.0
+    probs = {k: float(v / total) for k, v in probs.items()}
+    dominant_regime = max(probs, key=probs.get)
+    dom_pct = int(round(probs[dominant_regime] * 100.0))
+
+    base_multipliers = {
+        'GOLDILOCKS': 1.10,
+        'REFLASYON': 1.18,
+        'STAGFLASYON': 1.35,
+        'DEFLASYON': 0.82,
+    }
+    blended_multiplier = float(sum(probs[k] * base_multipliers[k] for k in base_multipliers))
+    inf_anchor = get('t10yie_level', 0.0)
+    title_map = {
+        'GOLDILOCKS': f'GOLDILOCKS (%{dom_pct} - Büyüme/Likidite Dengesi)',
+        'REFLASYON': f'REFLASYON (%{dom_pct} - Emtia/Enflasyon + Likidite)',
+        'STAGFLASYON': f'STAGFLASYON (%{dom_pct} - Emtia/Enflasyon + Stres)',
+        'DEFLASYON': f'DEFLASYONİST DARALMA (%{dom_pct} - Stres/Sıkı Finansal Koşullar)',
+    }
+
+    return {
+        'dominant_regime': dominant_regime,
+        'regime_title': title_map[dominant_regime],
+        'blended_multiplier': blended_multiplier,
+        'inflation_anchor': inf_anchor,
+        'regime_probs': probs,
+        'diagnostics': {
+            'inflation_pressure': inflation,
+            'commodity_pressure': commodity,
+            'real_rate_pressure': real_rate,
+            'systemic_stress': systemic_stress,
+            'growth_health': growth,
+            'liquidity_health': liquidity,
+            'commodity_event_z': commodity_event,
+            'real_rate_event_z': real_rate_event,
+            'stress_event_z': stress_event,
+        },
+    }
+
+
 class MacroEventInterpretationSystem:
     """
     Deterministic Macro Event Interpretation Engine v1.0.
@@ -124,15 +334,35 @@ class MacroEventInterpretationSystem:
         cfg = self.config
         
         # Build common aligned index across all series
-        df = pd.DataFrame(data).ffill().bfill().dropna(how='all')
+        df = pd.DataFrame(data).sort_index().ffill().dropna(how='all')
         features = pd.DataFrame(index=df.index)
         
         # 1. Regime 1 Indicators
         if 'oil' in df:
+            ret_5d = df['oil'].pct_change(5)
             ret_20d = df['oil'].pct_change(20)
+            features['oil_ret5_z'] = calc_rolling_zscore(ret_5d, cfg.rolling_window_52w, cfg.min_periods_52w)
             features['oil_ret20_z'] = calc_rolling_zscore(ret_20d, cfg.rolling_window_52w, cfg.min_periods_52w)
         else:
+            features['oil_ret5_z'] = 0.0
             features['oil_ret20_z'] = 0.0
+
+        # Broad commodity impulse prevents a single proxy (e.g. BDRY) from
+        # vetoing a genuine commodity inflation shock.
+        commodity_return_zs = []
+        for commodity_key in ('oil', 'gold', 'xag', 'hg', 'dbb'):
+            if commodity_key in df:
+                ret = df[commodity_key].pct_change(20)
+                z = calc_rolling_zscore(ret, cfg.rolling_window_52w, cfg.min_periods_52w)
+                features[f'{commodity_key}_ret20_z'] = z
+                commodity_return_zs.append(z)
+        if commodity_return_zs:
+            commodity_frame = pd.concat(commodity_return_zs, axis=1)
+            features['commodity_impulse_z'] = commodity_frame.mean(axis=1, skipna=True).fillna(features['oil_ret20_z'])
+            features['commodity_breadth'] = (commodity_frame > 0.5).sum(axis=1).astype(float) / max(commodity_frame.shape[1], 1)
+        else:
+            features['commodity_impulse_z'] = features['oil_ret20_z']
+            features['commodity_breadth'] = 0.0
             
         if 'bdi' in df:
             features['bdi_level_z'] = calc_rolling_zscore(df['bdi'], cfg.rolling_window_52w, cfg.min_periods_52w)
@@ -216,8 +446,15 @@ class MacroEventInterpretationSystem:
             
         if 't10yie' in df:
             features['t10yie_z'] = calc_rolling_zscore(df['t10yie'], cfg.rolling_window_52w, cfg.min_periods_52w)
+            features['t10yie_level'] = df['t10yie']
         else:
             features['t10yie_z'] = 0.0
+            features['t10yie_level'] = 0.0
+
+        if 'nfci' in df:
+            features['nfci_z'] = calc_rolling_zscore(df['nfci'], cfg.rolling_window_52w, cfg.min_periods_52w)
+        else:
+            features['nfci_z'] = 0.0
             
         if 'ust2y' in df and 'ust10y' in df:
             features['delta_dgs2'] = df['ust2y'].diff(5)
@@ -237,6 +474,13 @@ class MacroEventInterpretationSystem:
             features['ndl_z'] = calc_rolling_zscore(df['ndl'], cfg.rolling_window_52w, cfg.min_periods_52w)
         else:
             features['ndl_z'] = 0.0
+
+        if 'icsa' in df:
+            features['icsa_level_z'] = calc_rolling_zscore(df['icsa'], cfg.rolling_window_52w, cfg.min_periods_52w)
+            features['icsa_chg4w_z'] = calc_rolling_zscore(df['icsa'].diff(20), cfg.rolling_window_52w, cfg.min_periods_52w)
+        else:
+            features['icsa_level_z'] = 0.0
+            features['icsa_chg4w_z'] = 0.0
             
         if 'gold' in df:
             features['gold_ret20'] = df['gold'].pct_change(20)
@@ -247,169 +491,289 @@ class MacroEventInterpretationSystem:
 
     def evaluate_row(self, row: pd.Series) -> Dict[str, Any]:
         """
-        Evaluates deterministic triggers, confirmations, conflict resolution, and sub-types.
+        Evaluates five mutually exclusive macro regimes using multi-factor evidence.
+
+        The key design change is that a commodity shock is no longer vetoed by a
+        single BDI proxy, while conflict arbitration uses regime strength rather
+        than one raw indicator.
         """
         cfg = self.config
-        
-        # --- REGIME 1 ---
-        r1_t1 = row['oil_ret20_z'] > cfg.regime1_oil_z_thresh
-        r1_t2 = row['bdi_level_z'] < cfg.regime1_bdi_z_thresh
-        r1_triggers_met = r1_t1 and r1_t2
-        
-        r1_c1 = row['hy_oas_z'] > cfg.regime1_hy_z_thresh
-        r1_c2 = row['spx_ust10_corr60'] > cfg.regime1_corr_thresh
-        r1_confirms_met = r1_c1 and r1_c2
-        
-        r1_active = r1_triggers_met and r1_confirms_met
-        r1_main_z = abs(row['oil_ret20_z'])
-        
-        # --- REGIME 2 ---
-        r2_t1 = row['dtwex_chg5_z'] > cfg.regime2_dtwex_z_thresh
-        r2_t2 = row['usdjpy_chg1_z'] < cfg.regime2_usdjpy_z_thresh
-        r2_t3 = row['vix_level_z'] > cfg.regime2_vix_z_thresh
-        r2_triggers_met = r2_t1 or r2_t2 or r2_t3
-        
-        r2_c1 = row['basket_ret5d_z'] < cfg.regime2_basket_z_thresh
-        r2_confirms_met = r2_c1
-        
+        get = lambda key, default=0.0: _safe_float(row.get(key, default), default)
+
+        # --- REGIME 1: GLOBAL INFLATION / STAGFLATION SHOCK ---
+        oil_z = get('oil_ret20_z')
+        oil_fast_z = get('oil_ret5_z')
+        commodity_z = max(get('commodity_impulse_z'), oil_z, 0.80 * oil_fast_z)
+        inflation_z = get('t10yie_z')
+        hy_z = get('hy_oas_z')
+        bdi_z = get('bdi_level_z')
+        corr = get('spx_ust10_corr60')
+        ig_z = get('ig_oas_z')
+        commodity_breadth = get('commodity_breadth')
+
+        # A genuine commodity supply/cost shock must not wait for BDI or credit
+        # markets to confirm it. Broad cross-commodity participation acts as an
+        # independent support channel and is especially important at shock onset.
+        broad_commodity_event = commodity_z > 1.80 and commodity_breadth >= 0.60
+        r1_t1 = (oil_z > cfg.regime1_oil_z_thresh) or (commodity_z > 1.30)
+        r1_t2 = (inflation_z > 0.25) or (bdi_z < -0.75) or broad_commodity_event
+        r1_c1 = (hy_z > 0.25) or (ig_z > 0.25)
+        r1_c2 = (corr > -0.25) or broad_commodity_event
+        r1_support_count = int(r1_t2) + int(r1_c1) + int(r1_c2)
+        r1_active = r1_t1 and r1_support_count >= 2
+        r1_main_z = max(oil_z, commodity_z, inflation_z, max(hy_z, 0.0))
+        r1_strength = float(np.clip(
+            0.45 * max(commodity_z, 0.0)
+            + 0.25 * max(inflation_z, 0.0)
+            + 0.18 * max(hy_z, 0.0)
+            + 0.12 * max(-bdi_z, 0.0),
+            0.0, 5.0
+        ))
+        if commodity_z > 1.50 and inflation_z > 0.50:
+            r1_subtype = 'Emtia-Enflasyon Şoku'
+        elif inflation_z > 0.50:
+            r1_subtype = 'Yapışkan Enflasyon / Maliyet Şoku'
+        else:
+            r1_subtype = 'Emtia Maliyet Baskısı'
+
+        # --- REGIME 2: SYSTEMIC LIQUIDITY / CARRY SHOCK ---
+        dtwex_chg_z = get('dtwex_chg5_z')
+        usdjpy_chg_z = get('usdjpy_chg1_z')
+        vix_z = get('vix_level_z')
+        basket_z = get('basket_ret5d_z')
+        move_pctl = get('move_pctl252', 50.0)
+        r2_t1 = dtwex_chg_z > cfg.regime2_dtwex_z_thresh
+        r2_t2 = usdjpy_chg_z < cfg.regime2_usdjpy_z_thresh
+        r2_t3 = vix_z > cfg.regime2_vix_z_thresh
+        r2_t4 = move_pctl > 95.0
+        r2_trigger_count = int(r2_t1) + int(r2_t2) + int(r2_t3) + int(r2_t4)
+        r2_triggers_met = r2_trigger_count >= 1
+        r2_c1 = basket_z < cfg.regime2_basket_z_thresh
+        # A very strong volatility/carry event can stand on its own; otherwise
+        # require the risk-asset confirmation to avoid false systemic labels.
+        r2_confirms_met = r2_c1 or ((r2_t2 or r2_t3 or r2_t4) and basket_z < -0.75)
         r2_active = r2_triggers_met and r2_confirms_met
         r2_main_z = max(
-            abs(row['dtwex_chg5_z']) if r2_t1 else 0.0,
-            abs(row['usdjpy_chg1_z']) if r2_t2 else 0.0,
-            abs(row['vix_level_z']) if r2_t3 else 0.0,
+            abs(dtwex_chg_z) if r2_t1 else 0.0,
+            abs(usdjpy_chg_z) if r2_t2 else 0.0,
+            abs(vix_z) if r2_t3 else 0.0,
+            2.0 if r2_t4 else 0.0,
         )
-        
-        # --- REGIME 3 ---
-        r3_t1 = row['dfii10_chg1_z'] > cfg.regime3_dfii10_z_thresh
-        r3_t2 = row['t10yie_z'] < cfg.regime3_t10yie_z_thresh
-        r3_t3 = row.get('dxy_level_z', 0.0) > cfg.regime3_dxy_z_thresh
+        r2_strength = float(np.clip(
+            0.35 * max(abs(usdjpy_chg_z), 0.0)
+            + 0.30 * max(vix_z, 0.0)
+            + 0.20 * max(-basket_z, 0.0)
+            + 0.10 * max(dtwex_chg_z, 0.0)
+            + 0.05 * max((move_pctl - 80.0) / 10.0, 0.0),
+            0.0, 5.0
+        ))
+
+        # --- REGIME 3: REAL RATE SHOCK ---
+        dfii_z = get('dfii10_chg1_z')
+        dxy_level_z = get('dxy_level_z')
+        dxy_chg5_z = get('dxy_chg5_z')
+        r3_t1 = dfii_z > cfg.regime3_dfii10_z_thresh
+        r3_t2 = inflation_z < cfg.regime3_t10yie_z_thresh
+        r3_t3 = dxy_level_z > cfg.regime3_dxy_z_thresh or dxy_chg5_z > 0.50
         r3_triggers_met = r3_t1 and r3_t2 and r3_t3
         r3_active = r3_triggers_met
-        r3_main_z = max(abs(row['dfii10_chg1_z']), abs(row.get('dxy_level_z', 0.0)))
-        
-        # Sub-types for Regime 3
-        d2 = row.get('delta_dgs2', 0.0)
-        d10 = row.get('delta_dgs10', 0.0)
+        r3_main_z = max(abs(dfii_z), abs(dxy_level_z), abs(dxy_chg5_z))
+        r3_strength = float(np.clip(
+            0.50 * max(dfii_z, 0.0)
+            + 0.25 * max(dxy_level_z, dxy_chg5_z, 0.0)
+            + 0.15 * max(-inflation_z, 0.0)
+            + 0.10 * max(get('move_pctl252') - 70.0, 0.0) / 10.0,
+            0.0, 5.0
+        ))
+
+        d2 = get('delta_dgs2')
+        d10 = get('delta_dgs10')
         if d2 < 0 and d10 > 0:
-            r3_subtype = "Bear Steepener (Enflasyon/Term Premium)"
+            r3_subtype = 'Bear Steepener (Enflasyon/Term Premium)'
         elif d2 > 0 and d10 > 0 and d10 > d2:
-            r3_subtype = "Bear Steepener (Fed Varyantı)"
+            r3_subtype = 'Bear Steepener (Fed Varyantı)'
         elif d2 > 0 and d10 > 0 and d2 > d10:
-            r3_subtype = "Bear Flattener (Fed Sıkılaştırma Baskın)"
+            r3_subtype = 'Bear Flattener (Fed Sıkılaştırma Baskın)'
         elif d2 < 0 and d10 < 0:
-            r3_subtype = "Bull Flattener/Steepener (Gevşeme - Tetiklemez)"
+            r3_subtype = 'Bull Flattener/Steepener (Gevşeme - Tetiklemez)'
         else:
-            r3_subtype = "Dengeli / Nötr Eğri"
-            
-        # --- REGIME 4 ---
-        r4_t1 = row['hy_oas_z'] > cfg.regime4_hy_z_thresh
-        r4_t2 = row['hy_oas_slope10'] > cfg.regime4_hy_slope_thresh
+            r3_subtype = 'Dengeli / Nötr Eğri'
+
+        # --- REGIME 4: CREDIT DEFAULT / SPREAD STRESS ---
+        hy_slope = get('hy_oas_slope10')
+        r4_t1 = hy_z > cfg.regime4_hy_z_thresh
+        r4_t2 = hy_slope > cfg.regime4_hy_slope_thresh
         r4_triggers_met = r4_t1 and r4_t2
-        
-        r4_c1 = row['ig_oas_z'] > cfg.regime4_ig_z_thresh
-        r4_confirms_met = r4_c1
-        
+        r4_c1 = ig_z > cfg.regime4_ig_z_thresh
+        r4_confirms_met = r4_c1 or (hy_z > 2.50 and vix_z > 1.00)
         r4_active = r4_triggers_met and r4_confirms_met
-        r4_main_z = abs(row['hy_oas_z'])
-        
-        # --- REGIME 5 ---
-        r5_t1 = row['hy_oas_z'] < cfg.regime5_hy_z_thresh
-        r5_t2 = cfg.regime5_dtwex_z_min <= row['dtwex_level_z'] <= cfg.regime5_dtwex_z_max
-        min_vol_pctl = min(row.get('vix_pctl252', 50.0), row.get('move_pctl252', 50.0))
+        r4_main_z = abs(hy_z)
+        r4_strength = float(np.clip(
+            0.55 * max(hy_z, 0.0)
+            + 0.25 * max(ig_z, 0.0)
+            + 0.10 * max(vix_z, 0.0)
+            + 0.10 * max(hy_slope, 0.0),
+            0.0, 5.0
+        ))
+
+        # --- REGIME 5: GLOBAL LIQUIDITY RALLY / RISK-ON ---
+        ndl_z = get('ndl_z')
+        min_vol_pctl = min(get('vix_pctl252', 50.0), get('move_pctl252', 50.0))
+        r5_t1 = hy_z < cfg.regime5_hy_z_thresh
+        r5_t2 = cfg.regime5_dtwex_z_min <= get('dtwex_level_z') <= cfg.regime5_dtwex_z_max
         r5_t3 = min_vol_pctl < cfg.regime5_vol_percentile_thresh
-        r5_t4 = row['ndl_z'] > cfg.regime5_ndl_z_thresh
+        r5_t4 = ndl_z > cfg.regime5_ndl_z_thresh
         r5_triggers_met = r5_t1 and r5_t2 and r5_t3 and r5_t4
         r5_active = r5_triggers_met
-        
-        # Sub-types for Regime 5 (post-hoc)
-        gold_ret = row.get('gold_ret20', 0.0)
-        dtwex_z = row['dtwex_level_z']
+        r5_strength = float(np.clip(
+            0.35 * max(-hy_z, 0.0)
+            + 0.30 * max(ndl_z, 0.0)
+            + 0.20 * max(-get('dxy_level_z'), 0.0)
+            + 0.15 * max((30.0 - min_vol_pctl) / 10.0, 0.0),
+            0.0, 5.0
+        ))
+
+        gold_ret = get('gold_ret20')
+        dtwex_z = get('dtwex_level_z')
         if dtwex_z < -0.5 and gold_ret > 0:
-            r5_subtype = "Reflasyonist Risk-On"
+            r5_subtype = 'Reflasyonist Risk-On'
         elif (-1.0 <= dtwex_z <= 0.5) and gold_ret <= 0:
-            r5_subtype = "Klasik Goldilocks Risk-On"
+            r5_subtype = 'Klasik Goldilocks Risk-On'
         else:
-            r5_subtype = "Dengeli Likidite Rallisi"
-            
+            r5_subtype = 'Dengeli Likidite Rallisi'
+
         # --- PRIORITY & CONFLICT RESOLUTION ---
         active_shocks = []
-        if r1_active: active_shocks.append((1, r1_main_z))
-        if r2_active: active_shocks.append((2, r2_main_z))
-        if r3_active: active_shocks.append((3, r3_main_z))
-        if r4_active: active_shocks.append((4, r4_main_z))
-        
-        candidate_regime_id: int = 0
-        conflict_note: str = "Yok"
-        active_subtype: str = "N/A"
-        
+        if r1_active:
+            active_shocks.append((1, r1_strength, r1_main_z))
+        if r2_active:
+            active_shocks.append((2, r2_strength, r2_main_z))
+        if r3_active:
+            active_shocks.append((3, r3_strength, r3_main_z))
+        if r4_active:
+            active_shocks.append((4, r4_strength, r4_main_z))
+
+        candidate_regime_id = 0
+        conflict_note = 'Yok'
+        active_subtype = 'N/A'
+
         if active_shocks:
             if len(active_shocks) == 1:
                 candidate_regime_id = active_shocks[0][0]
             else:
                 shock_ids = [s[0] for s in active_shocks]
-                # Special conflict case: Regime 1 vs Regime 3
                 if set(shock_ids) == {1, 3}:
-                    if row['t10yie_z'] > cfg.conflict_1_vs_3_t10yie_thresh:
-                        candidate_regime_id = 1
-                        conflict_note = f"Özel Çözüm: R1 vs R3 -> T10YIE_Z ({row['t10yie_z']:.2f}) > +0.5 => Rejim 1"
+                    # Keep the historical T10YIE split as a tie-breaker, but
+                    # first compare multivariate event strength.
+                    r1_strength_val = r1_strength
+                    r3_strength_val = r3_strength
+                    if abs(r1_strength_val - r3_strength_val) < 0.15:
+                        candidate_regime_id = 1 if inflation_z > cfg.conflict_1_vs_3_t10yie_thresh else 3
+                        conflict_note = (
+                            f'R1 vs R3 güç yakınlığı -> T10YIE_Z ({inflation_z:.2f}) ' 
+                            f"{'>' if inflation_z > cfg.conflict_1_vs_3_t10yie_thresh else '<='} +0.5 ayrıştırıcısı => Rejim {candidate_regime_id}"
+                        )
                     else:
-                        candidate_regime_id = 3
-                        conflict_note = f"Özel Çözüm: R1 vs R3 -> T10YIE_Z ({row['t10yie_z']:.2f}) <= +0.5 => Rejim 3"
+                        candidate_regime_id = 1 if r1_strength_val > r3_strength_val else 3
+                        conflict_note = (
+                            f'Çoklu Şok {shock_ids}: Çok faktörlü güç karşılaştırması ' 
+                            f'R1={r1_strength_val:.2f}, R3={r3_strength_val:.2f} => Rejim {candidate_regime_id}'
+                        )
                 else:
-                    best_shock = max(active_shocks, key=lambda x: x[1])
+                    best_shock = max(active_shocks, key=lambda x: (x[1], x[2]))
                     candidate_regime_id = best_shock[0]
-                    conflict_note = f"Çoklu Şok Çözümü {shock_ids}: En yüksek |Z| ({best_shock[1]:.2f}) ile Rejim {candidate_regime_id}"
+                    conflict_note = (
+                        f'Çoklu Şok Çözümü {shock_ids}: Çok faktörlü güç {best_shock[1]:.2f} ' 
+                        f've ana Z {best_shock[2]:.2f} => Rejim {candidate_regime_id}'
+                    )
         elif r5_active:
             candidate_regime_id = 5
-        else:
-            candidate_regime_id = 0
-            
+
         regime_names = {
-            1: "Küresel Enflasyon & Stagflasyon Şoku",
-            2: "Sistemik Likidite Şoku & Carry Çöküşü",
-            3: "Reel Faiz Şoku",
-            4: "Kredi Temerrüt Baskısı",
-            5: "Küresel Likidite Rallisi (Risk-On)",
-            0: "REJIMSIZ_GECIS"
+            1: 'Küresel Enflasyon & Stagflasyon Şoku',
+            2: 'Sistemik Likidite Şoku & Carry Çöküşü',
+            3: 'Reel Faiz Şoku',
+            4: 'Kredi Temerrüt Baskısı',
+            5: 'Küresel Likidite Rallisi (Risk-On)',
+            0: 'REJIMSIZ_GECIS'
         }
-        candidate_regime_name = regime_names.get(candidate_regime_id, "REJIMSIZ_GECIS")
-        
-        if candidate_regime_id == 3:
+        candidate_regime_name = regime_names.get(candidate_regime_id, 'REJIMSIZ_GECIS')
+
+        if candidate_regime_id == 1:
+            active_subtype = r1_subtype
+        elif candidate_regime_id == 3:
             active_subtype = r3_subtype
         elif candidate_regime_id == 5:
             active_subtype = r5_subtype
-            
+
+        # Fast-track only truly extraordinary events; ordinary candidates keep
+        # the standard hysteresis to avoid whipsaws.
+        candidate_strength = {
+            1: r1_strength, 2: r2_strength, 3: r3_strength, 4: r4_strength, 5: r5_strength, 0: 0.0
+        }.get(candidate_regime_id, 0.0)
+        max_event_z = max(
+            abs(commodity_z), abs(dfii_z), abs(vix_z), abs(hy_z), abs(ig_z), abs(usdjpy_chg_z), abs(dtwex_chg_z)
+        )
+        extreme_event = bool(
+            1 <= candidate_regime_id <= 4
+            and max(max_event_z, candidate_strength) >= cfg.extreme_shock_z
+            and (r1_support_count >= 2 if candidate_regime_id == 1 else True)
+        )
+
         return {
             'candidate_id': candidate_regime_id,
             'candidate_name': candidate_regime_name,
             'subtype': active_subtype,
             'conflict_note': conflict_note,
+            'extreme_event': extreme_event,
+            'candidate_strength': float(candidate_strength),
             'r1_active': r1_active,
             'r2_active': r2_active,
             'r3_active': r3_active,
             'r4_active': r4_active,
             'r5_active': r5_active,
             'details': {
-                'r1': {'t1': (float(row['oil_ret20_z']), cfg.regime1_oil_z_thresh, bool(r1_t1)),
-                       't2': (float(row['bdi_level_z']), cfg.regime1_bdi_z_thresh, bool(r1_t2)),
-                       'c1': (float(row['hy_oas_z']), cfg.regime1_hy_z_thresh, bool(r1_c1)),
-                       'c2': (float(row['spx_ust10_corr60']), cfg.regime1_corr_thresh, bool(r1_c2))},
-                'r2': {'t1': (float(row['dtwex_chg5_z']), cfg.regime2_dtwex_z_thresh, bool(r2_t1)),
-                       't2': (float(row['usdjpy_chg1_z']), cfg.regime2_usdjpy_z_thresh, bool(r2_t2)),
-                       't3': (float(row['vix_level_z']), cfg.regime2_vix_z_thresh, bool(r2_t3)),
-                       'c1': (float(row['basket_ret5d_z']), cfg.regime2_basket_z_thresh, bool(r2_c1))},
-                'r3': {'t1': (float(row['dfii10_chg1_z']), cfg.regime3_dfii10_z_thresh, bool(r3_t1)),
-                       't2': (float(row['t10yie_z']), cfg.regime3_t10yie_z_thresh, bool(r3_t2)),
-                       't3': (float(row.get('dxy_level_z', 0.0)), cfg.regime3_dxy_z_thresh, bool(r3_t3)),
-                       'subtype': r3_subtype},
-                'r4': {'t1': (float(row['hy_oas_z']), cfg.regime4_hy_z_thresh, bool(r4_t1)),
-                       't2': (float(row['hy_oas_slope10']), cfg.regime4_hy_slope_thresh, bool(r4_t2)),
-                       'c1': (float(row['ig_oas_z']), cfg.regime4_ig_z_thresh, bool(r4_c1))},
-                'r5': {'t1': (float(row['hy_oas_z']), cfg.regime5_hy_z_thresh, bool(r5_t1)),
-                       't2': (float(row['dtwex_level_z']), (cfg.regime5_dtwex_z_min, cfg.regime5_dtwex_z_max), bool(r5_t2)),
-                       't3': (float(min_vol_pctl), cfg.regime5_vol_percentile_thresh, bool(r5_t3)),
-                       't4': (float(row['ndl_z']), cfg.regime5_ndl_z_thresh, bool(r5_t4)),
-                       'subtype': r5_subtype}
+                'r1': {
+                    't1': (float(oil_z), cfg.regime1_oil_z_thresh, bool(oil_z > cfg.regime1_oil_z_thresh)),
+                    't2': (float(bdi_z), -0.75, bool(r1_t2)),
+                    'c1': (float(hy_z), 0.25, bool(r1_c1)),
+                    'c2': (float(corr), -0.25, bool(r1_c2)),
+                    'commodity_z': float(commodity_z),
+                    'commodity_breadth': float(commodity_breadth),
+                    'broad_commodity_event': bool(broad_commodity_event),
+                    'inflation_z': float(inflation_z),
+                    'support_count': r1_support_count,
+                    'subtype': r1_subtype,
+                },
+                'r2': {
+                    't1': (float(dtwex_chg_z), cfg.regime2_dtwex_z_thresh, bool(r2_t1)),
+                    't2': (float(usdjpy_chg_z), cfg.regime2_usdjpy_z_thresh, bool(r2_t2)),
+                    't3': (float(vix_z), cfg.regime2_vix_z_thresh, bool(r2_t3)),
+                    't4': (float(move_pctl), 95.0, bool(r2_t4)),
+                    'c1': (float(basket_z), cfg.regime2_basket_z_thresh, bool(r2_c1)),
+                },
+                'r3': {
+                    't1': (float(dfii_z), cfg.regime3_dfii10_z_thresh, bool(r3_t1)),
+                    't2': (float(inflation_z), cfg.regime3_t10yie_z_thresh, bool(r3_t2)),
+                    't3': (float(dxy_level_z), cfg.regime3_dxy_z_thresh, bool(r3_t3)),
+                    'subtype': r3_subtype,
+                },
+                'r4': {
+                    't1': (float(hy_z), cfg.regime4_hy_z_thresh, bool(r4_t1)),
+                    't2': (float(hy_slope), cfg.regime4_hy_slope_thresh, bool(r4_t2)),
+                    'c1': (float(ig_z), cfg.regime4_ig_z_thresh, bool(r4_c1)),
+                },
+                'r5': {
+                    't1': (float(hy_z), cfg.regime5_hy_z_thresh, bool(r5_t1)),
+                    't2': (float(dtwex_z), (cfg.regime5_dtwex_z_min, cfg.regime5_dtwex_z_max), bool(r5_t2)),
+                    't3': (float(min_vol_pctl), cfg.regime5_vol_percentile_thresh, bool(r5_t3)),
+                    't4': (float(ndl_z), cfg.regime5_ndl_z_thresh, bool(r5_t4)),
+                    'subtype': r5_subtype,
+                },
+                'strengths': {
+                    'R1': float(r1_strength), 'R2': float(r2_strength), 'R3': float(r3_strength),
+                    'R4': float(r4_strength), 'R5': float(r5_strength),
+                },
             }
         }
 
@@ -476,7 +840,10 @@ class MacroEventInterpretationSystem:
                         active_cand = c
                         cand_streak = 1
                         
-                    req = cfg.shock_confirmation_days if (1 <= c <= 4) else cfg.risk_on_confirmation_days
+                    if 1 <= c <= 4 and res.get('extreme_event', False):
+                        req = cfg.extreme_shock_confirmation_days
+                    else:
+                        req = cfg.shock_confirmation_days if (1 <= c <= 4) else cfg.risk_on_confirmation_days
                     if cand_streak >= req:
                         current_confirmed = c
                         fallback_timer = cfg.hysteresis_period_days
