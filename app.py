@@ -13,7 +13,8 @@ from macro_event_interpretation import (
     MacroEventInterpretationSystem,
     RegimeThresholdConfig,
     get_macro_interpretation_asset_multipliers,
-    render_macro_scorecard_ui
+    render_macro_scorecard_ui,
+    compute_continuum_regime_state
 )
 from asset_regime_weights import (
     get_dynamic_asset_weights,
@@ -168,66 +169,42 @@ def fetch_g4_global_net_liquidity(days=2500):
         return fetch_fred_data('WALCL', days)
 
 # --- 3. KADEMELİ VE PÜRÜZSÜZ REJİM GEÇİŞ MOTORU (FUZZY CONTINUUM) ---
-def sigmoid(x):
-    return 1.0 / (1.0 + np.exp(-np.clip(x, -12.0, 12.0)))
+def get_realtime_macro_regime(
+    macro_row=None,
+    confirmed_regime_id: int = 0,
+    candidate_regime_id: int = 0,
+    in_transition: bool = False,
+):
+    """
+    Continuum katmanı deterministik motorla aynı normalize edilmiş olay
+    özelliklerini kullanır. Böylece emtia, reel faiz, kredi ve likidite
+    şokları sadece deterministik sekmeyi değil, sürekli rejim ağırlıklarını
+    da aynı anda etkiler.
+    """
+    if macro_row is None:
+        return (
+            "GOLDILOCKS",
+            "GOLDILOCKS (%0 - Veri Bekleniyor)",
+            1.10,
+            2.30,
+            {"GOLDILOCKS": 1.0, "REFLASYON": 0.0, "STAGFLASYON": 0.0, "DEFLASYON": 0.0},
+            {},
+        )
 
-def get_realtime_macro_regime():
-    t10yie = fetch_fred_data('T10YIE') 
-    real_rate = fetch_fred_data('DFII10') 
-    icsa = fetch_fred_data('ICSA') 
-    nfci = fetch_fred_data('NFCI')
-    vix = fetch_yf_data('^VIX')
-    hy_oas = fetch_fred_data('BAMLH0A0HYM2')
-    
-    if len(t10yie) < 60 or len(real_rate) < 60:
-        return "GOLDILOCKS", "GOLDILOCKS (Gevşek Finansal Koşullar, Canlı Büyüme)", 1.25, 2.30, {"GOLDILOCKS": 1.0, "REFLASYON": 0.0, "STAGFLASYON": 0.0, "DEFLASYON": 0.0}
-        
-    lookback_inf = min(len(t10yie), 504)
-    inf_dynamic_anchor = float(t10yie.tail(lookback_inf).mean() + (0.25 * t10yie.tail(lookback_inf).std()))
-    
-    # Sürekli (Continuous) Faktör Sinyalleri
-    vix_val = vix.iloc[-1] if not vix.empty else 15.0
-    nfci_val = nfci.iloc[-1] if not nfci.empty else -0.50
-    hy_val = hy_oas.iloc[-1] if not hy_oas.empty else 2.80
-    icsa_val = icsa.iloc[-1] if not icsa.empty else 215000.0
-    t10_val = t10yie.iloc[-1] if not t10yie.empty else 2.30
-    
-    # Pürüzsüz Olasılık Geçişleri (Sert Eşik Yok)
-    prob_loose_credit = sigmoid((-nfci_val - 0.30) / 0.15) * sigmoid((3.40 - hy_val) / 0.40)
-    prob_calm_market = sigmoid((19.0 - vix_val) / 2.5)
-    prob_growth = prob_loose_credit * sigmoid((250000.0 - icsa_val) / 25000.0)
-    prob_inf = sigmoid((t10_val - inf_dynamic_anchor) / 0.10)
-    prob_stress = (1.0 - prob_calm_market) * (1.0 - prob_loose_credit)
-    
-    # 4 Rejimin Kademeli Ağırlık Dağılımı
-    w_goldilocks = prob_growth * (1.0 - prob_inf) * prob_calm_market
-    w_reflation = prob_growth * prob_inf * prob_calm_market
-    w_stagflation = (1.0 - prob_growth + 0.1) * prob_inf * (1.0 - prob_calm_market + 0.1)
-    w_deflation = (1.0 - prob_growth) * (1.0 - prob_inf) * prob_stress
-    
-    total_regime_weight = w_goldilocks + w_reflation + w_stagflation + w_deflation + 1e-6
-    regime_probs = {
-        "GOLDILOCKS": float(w_goldilocks / total_regime_weight),
-        "REFLASYON": float(w_reflation / total_regime_weight),
-        "STAGFLASYON": float(w_stagflation / total_regime_weight),
-        "DEFLASYON": float(w_deflation / total_regime_weight)
-    }
-    
-    dominant_regime = max(regime_probs, key=regime_probs.get)
-    dom_pct = int(regime_probs[dominant_regime] * 100)
-    
-    # Pürüzsüz Harmanlanmış Çarpan
-    base_multipliers = {"GOLDILOCKS": 1.25, "REFLASYON": 1.15, "STAGFLASYON": 1.40, "DEFLASYON": 1.40}
-    blended_multiplier = sum(regime_probs[r] * base_multipliers[r] for r in base_multipliers)
-    
-    regime_titles = {
-        "GOLDILOCKS": f"GOLDILOCKS (%{dom_pct} - Canlı Büyüme & Gevşek Kredi)",
-        "REFLASYON": f"REFLASYON (%{dom_pct} - Genişleyen Emtia & Likidite)",
-        "STAGFLASYON": f"STAGFLASYON (%{dom_pct} - Yapışkan Enflasyon / Stres)",
-        "DEFLASYON": f"DEFLASYONİST DARALMA (%{dom_pct} - Sıkılaşma / Resesyon)"
-    }
-    
-    return dominant_regime, regime_titles[dominant_regime], blended_multiplier, inf_dynamic_anchor, regime_probs
+    state = compute_continuum_regime_state(
+        macro_row,
+        confirmed_regime_id=confirmed_regime_id,
+        candidate_regime_id=candidate_regime_id,
+        in_transition=in_transition,
+    )
+    return (
+        state["dominant_regime"],
+        state["regime_title"],
+        state["blended_multiplier"],
+        state["inflation_anchor"],
+        state["regime_probs"],
+        state["diagnostics"],
+    )
 
 # --- 4. OTONOM ŞALTER MOTORU ---
 def check_systemic_circuit_breaker():
@@ -436,7 +413,12 @@ with st.spinner("Makro Veriler ve Rejimler Analiz Ediliyor..."):
         'dfii10': tips_real,
         't10yie': t10yie,
         'ndl': ndl_val,
-        'gold': gold_val
+        'gold': gold_val,
+        'xag': fetch_yf_data('SI=F'),
+        'hg': fetch_yf_data('HG=F'),
+        'dbb': dbb,
+        'nfci': nfci,
+        'icsa': icsa
     }
     
     macro_system = MacroEventInterpretationSystem()
@@ -466,7 +448,12 @@ with st.spinner("Makro Veriler ve Rejimler Analiz Ediliyor..."):
     active_macro_mult = macro_asset_mults.get(asset, 1.0)
     
     # 2. Sürekli Kademeli Rejim (Continuum)
-    dominant_regime, regime_title, blended_multiplier, dynamic_inf_anchor, regime_probs = get_realtime_macro_regime()
+    dominant_regime, regime_title, blended_multiplier, dynamic_inf_anchor, regime_probs, continuum_diagnostics = get_realtime_macro_regime(
+        last_macro_row if not macro_hist_df.empty else None,
+        confirmed_regime_id=confirmed_regime_id,
+        candidate_regime_id=candidate_regime_id,
+        in_transition=macro_in_trans,
+    )
     circuit_triggered, circuit_reasons = check_systemic_circuit_breaker()
 
 # --- ÜST SEVİYE SEKME MİMARİSİ ---
@@ -529,6 +516,18 @@ with main_tab2:
     
     if confirmed_regime_id in [1, 2, 3, 4]:
         st.warning(f"🚨 **DETERMİNİSTİK ŞOK REJİMİ AKTİF:** {confirmed_regime_name}. {asset} için Makro Olay Çarpanı: **{active_macro_mult:.2f}x** uygulandı.")
+
+    # Sürekli katmanın olay farkındalığını görünür kıl: bunlar aynı normalize
+    # edilmiş olay satırından üretilen bağımsız sürekli durum değişkenleridir.
+    d1, d2, d3, d4 = st.columns(4)
+    with d1:
+        st.metric("Emtia Baskısı", f"%{continuum_diagnostics.get('commodity_pressure', 0.0) * 100:.0f}", f"Event Z: {continuum_diagnostics.get('commodity_event_z', 0.0):+.2f}")
+    with d2:
+        st.metric("Reel Faiz Baskısı", f"%{continuum_diagnostics.get('real_rate_pressure', 0.0) * 100:.0f}", f"Event Z: {continuum_diagnostics.get('real_rate_event_z', 0.0):+.2f}")
+    with d3:
+        st.metric("Sistemik Stres", f"%{continuum_diagnostics.get('systemic_stress', 0.0) * 100:.0f}", f"Stress Z: {continuum_diagnostics.get('stress_event_z', 0.0):+.2f}")
+    with d4:
+        st.metric("Likidite Sağlığı", f"%{continuum_diagnostics.get('liquidity_health', 0.0) * 100:.0f}", f"Büyüme: %{continuum_diagnostics.get('growth_health', 0.0) * 100:.0f}")
 
     in_trans = bool(last_macro_row.get('in_transition', False)) if 'last_macro_row' in locals() and last_macro_row is not None else False
     dyn_weight_map = get_dynamic_asset_weights(asset, confirmed_regime_id, regime_probs, in_trans)
@@ -669,10 +668,11 @@ with main_tab2:
         st.dataframe(df_results, use_container_width=True)
         
         st.markdown("""
-        **Kurumsal v33.0 Continuum Rehberi:**
-        * **Pürüzsüz Rejim Geçişi (Fuzzy Blending):** VIX veya NFCI sınırlarında sert zıplama olmaz; 4 rejimin olasılıkları ağırlıkları pürüzsüz harmanlar.
-        * **5 Yıllık Hibrit Bayesyen Çapa:** Göstergeler 1260 günlük kayan ortalamayla kendini kalibre ederek 15 yıl sonra dahi parametre eskimesi yaşamaz.
-        * **Deterministik Şok Entegrasyonu:** Olay Yorumlama Sistemi bir şok tespit ettiğinde, varlık maruziyeti otonom şekilde sönümlenir.
+        **Kurumsal Event-Aware Continuum Rehberi:**
+        * **Ortak olay özellikleri:** Sürekli rejim; emtia ivmesi, reel faiz, DXY, kredi stresi, VIX/MOVE, NFCI, istihdam ve likidite özelliklerini aynı normalize edilmiş katmandan okur.
+        * **Çoklu şok duyarlılığı:** Petrol tek başına değil; petrol + geniş emtia + enflasyon/reel-faiz/kredi kanallarındaki eşzamanlı bozulma rejim ağırlıklarını birlikte değiştirir.
+        * **Olay-adaptif hız:** Normal gürültüde histerezis korunur; olağanüstü z-skorlu şoklarda aday rejim daha hızlı ağırlık kazanır.
+        * **Çatışma çözümü:** Deterministik rejim çıktısı tek başına baskınlaştırılmaz; sürekli katman çok faktörlü stres/emtia/reel-faiz bileşimini de kullanır.
         """)
 
 # ==========================================
