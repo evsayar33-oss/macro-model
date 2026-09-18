@@ -1,22 +1,434 @@
-name: "Automated Streamlit Wakeup & Data Sync"
+name: "Autonomous Macro Regime Monitor"
 
 on:
   schedule:
-    # Her 2 saatte bir otomatik çalışır (Sunucunun uyumasını engeller ve veriyi taze tutar)
-    - cron: '0 */2 * * *'
-  workflow_dispatch: # İstediğiniz an GitHub'dan manuel çalıştırma butonu
+    # GitHub Actions cron UTC kullanır.
+    # Runner her 2 saatte bir çalışır; kalıcı state/audit en az günde 1 kez yazılır.
+    - cron: "0 */2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: macro-model-autonomous-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: write
 
 jobs:
-  keep-alive-and-sync:
+  autonomous-monitor:
     runs-on: ubuntu-latest
+
     steps:
-      - name: "Streamlit Uygulamasına İstek Gönder (Wakeup & Cache Refresh)"
+      - name: "Repository Checkout"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: "Python Setup"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: "Install Headless Monitor Dependencies"
         run: |
-          echo "Streamlit uygulamasına canlı ping gönderiliyor..."
-          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://vdthz.streamlit.app" || echo "000")
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance requests
+
+      - name: "Run Autonomous Regime Scan + Persist State"
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python - <<'PY'
+          import json
+          import math
+          import os
+          from datetime import datetime, timezone
+
+          import numpy as np
+          import pandas as pd
+          import yfinance as yf
+
+          from macro_event_interpretation import (
+              MacroEventInterpretationSystem,
+              compute_continuum_regime_state,
+              get_macro_interpretation_asset_multipliers,
+          )
+          from asset_regime_weights import (
+              ASSETS,
+              INDICATORS,
+              get_dynamic_asset_weights,
+          )
+
+          REPO_DIR = os.getcwd()
+          SUMMARY_PATH = os.path.join(REPO_DIR, "backtest_summary.json")
+
+          REGIME_NAMES = {
+              0: "REJIMSIZ_GECIS",
+              1: "Küresel Enflasyon & Stagflasyon Şoku",
+              2: "Sistemik Likidite Şoku & Carry Çöküşü",
+              3: "Reel Faiz Şoku",
+              4: "Kredi Temerrüt Baskısı",
+              5: "Küresel Likidite Rallisi (Risk-On)",
+          }
+
+          CONTINUUM_MAP = {
+              0: None,
+              1: "STAGFLASYON",
+              2: "DEFLASYON",
+              3: None,
+              4: "DEFLASYON",
+              5: None,
+          }
+
+          def clean_series(s: pd.Series) -> pd.Series:
+              s = pd.Series(s).copy()
+              s.index = pd.to_datetime(s.index, errors="coerce")
+              s = s[~s.index.isna()]
+              s = pd.to_numeric(s, errors="coerce").replace([np.inf, -np.inf], np.nan)
+              s = s.dropna().sort_index()
+              if s.index.tz is not None:
+                  s.index = s.index.tz_localize(None)
+              return s.astype(float)
+
+          def fetch_fred(series_id: str) -> pd.Series:
+              url = (
+                  "https://fred.stlouisfed.org/graph/fredgraph.csv"
+                  f"?id={series_id}&cosd=2014-01-01"
+              )
+              try:
+                  df = pd.read_csv(url)
+                  if df.empty:
+                      return pd.Series(dtype=float)
+                  date_col = next(
+                      (c for c in df.columns if c.lower() in {"date", "observation_date"}),
+                      df.columns[0],
+                  )
+                  value_cols = [c for c in df.columns if c != date_col]
+                  if not value_cols:
+                      return pd.Series(dtype=float)
+                  value_col = value_cols[0]
+                  idx = pd.to_datetime(df[date_col], errors="coerce")
+                  vals = pd.to_numeric(df[value_col].replace(".", np.nan), errors="coerce")
+                  return clean_series(pd.Series(vals.values, index=idx))
+              except Exception as exc:
+                  print(f"[WARN] FRED {series_id}: {exc}")
+                  return pd.Series(dtype=float)
+
+          def fetch_yf(ticker: str) -> pd.Series:
+              try:
+                  data = yf.download(
+                      ticker,
+                      period="12y",
+                      interval="1d",
+                      auto_adjust=False,
+                      progress=False,
+                      threads=False,
+                  )
+                  if data.empty:
+                      return pd.Series(dtype=float)
+                  if isinstance(data.columns, pd.MultiIndex):
+                      if "Close" in data.columns.get_level_values(0):
+                          s = data["Close"]
+                      else:
+                          s = data.iloc[:, 0]
+                  elif "Close" in data.columns:
+                      s = data["Close"]
+                  else:
+                      s = data.iloc[:, 0]
+                  if isinstance(s, pd.DataFrame):
+                      s = s.iloc[:, 0]
+                  return clean_series(s)
+              except Exception as exc:
+                  print(f"[WARN] Yahoo {ticker}: {exc}")
+                  return pd.Series(dtype=float)
+
+          def compute_global_net_liquidity(walcl, tga, rrp) -> pd.Series:
+              df = pd.concat([walcl, tga, rrp], axis=1).sort_index().ffill().dropna()
+              if df.empty:
+                  return pd.Series(dtype=float)
+              return (df.iloc[:, 0] - df.iloc[:, 1] + df.iloc[:, 2] * 1000.0).dropna()
+
+          def compute_circuit_breaker(series_map):
+              reasons = []
+              move = series_map.get("move", pd.Series(dtype=float))
+              hy = series_map.get("hy_oas", pd.Series(dtype=float))
+              nfci = series_map.get("nfci", pd.Series(dtype=float))
+              vix = series_map.get("vix", pd.Series(dtype=float))
+              if len(move) >= 60:
+                  th = max(120.0, float(move.tail(504).quantile(0.96)))
+                  if float(move.iloc[-1]) > th:
+                      reasons.append(f"MOVE>{th:.1f} (current={float(move.iloc[-1]):.1f})")
+              if len(hy) >= 60:
+                  th = max(4.5, float(hy.tail(504).quantile(0.96)))
+                  if float(hy.iloc[-1]) > th:
+                      reasons.append(f"HY_OAS>{th:.2f}% (current={float(hy.iloc[-1]):.2f}%)")
+              if len(nfci) >= 50:
+                  th = max(0.05, float(nfci.tail(252).quantile(0.92)))
+                  if float(nfci.iloc[-1]) > th:
+                      reasons.append(f"NFCI>{th:.2f} (current={float(nfci.iloc[-1]):.2f})")
+              if len(vix) >= 60:
+                  th = max(28.0, float(vix.tail(504).quantile(0.96)))
+                  if float(vix.iloc[-1]) > th:
+                      reasons.append(f"VIX>{th:.1f} (current={float(vix.iloc[-1]):.1f})")
+              return bool(reasons), reasons
+
+          def json_safe(obj):
+              if isinstance(obj, (np.bool_, bool)):
+                  return bool(obj)
+              if isinstance(obj, (np.integer, int)):
+                  return int(obj)
+              if isinstance(obj, (np.floating, float)):
+                  value = float(obj)
+                  return value if math.isfinite(value) else None
+              if isinstance(obj, pd.Timestamp):
+                  return obj.isoformat()
+              if isinstance(obj, dict):
+                  return {str(k): json_safe(v) for k, v in obj.items()}
+              if isinstance(obj, (list, tuple)):
+                  return [json_safe(v) for v in obj]
+              return obj
+
+          # 1) Fresh macro data collection
+          fred_ids = {
+              "ust2y": "DGS2", "ust10y": "DGS10", "dfii10": "DFII10",
+              "t10yie": "T10YIE", "t5yifr": "T5YIFR", "hy_oas": "BAMLH0A0HYM2",
+              "ig_oas": "BAMLC0A0CM", "nfci": "NFCI", "icsa": "ICSA",
+              "dtwex": "DTWEXBGS", "walcl": "WALCL", "tga": "WTREGEN", "rrp": "RRPONTSYD",
+          }
+          fred_data = {key: fetch_fred(value) for key, value in fred_ids.items()}
+
+          yf_ids = {
+              "oil": "CL=F", "bdi": "BDRY", "dxy": "DX-Y.NYB", "usdjpy": "JPY=X",
+              "vix": "^VIX", "move": "^MOVE", "btc": "BTC-USD", "spx": "SPY",
+              "gold": "GC=F", "xag": "SI=F", "hg": "HG=F", "dbb": "DBB", "eurusd": "EURUSD=X",
+          }
+          yf_data = {key: fetch_yf(value) for key, value in yf_ids.items()}
+
+          dxy = yf_data["dxy"] if not yf_data["dxy"].empty else fred_data["dtwex"]
+          ndl = compute_global_net_liquidity(fred_data["walcl"], fred_data["tga"], fred_data["rrp"])
+
+          # 2) Same event-input contract as the application
+          macro_input = {
+              "oil": yf_data["oil"], "bdi": yf_data["bdi"], "hy_oas": fred_data["hy_oas"],
+              "ig_oas": fred_data["ig_oas"], "spx": yf_data["spx"], "ust10y": fred_data["ust10y"],
+              "ust2y": fred_data["ust2y"], "dtwex": fred_data["dtwex"], "dxy": dxy,
+              "usdjpy": yf_data["usdjpy"], "vix": yf_data["vix"], "move": yf_data["move"],
+              "btc": yf_data["btc"], "dfii10": fred_data["dfii10"], "t10yie": fred_data["t10yie"],
+              "ndl": ndl, "gold": yf_data["gold"], "xag": yf_data["xag"], "hg": yf_data["hg"],
+              "dbb": yf_data["dbb"], "nfci": fred_data["nfci"], "icsa": fred_data["icsa"],
+          }
+
+          required = ["oil", "hy_oas", "dfii10", "dxy", "vix", "move", "t10yie", "nfci", "icsa"]
+          missing = [key for key in required if macro_input[key].empty]
+          if len(missing) >= 3:
+              raise RuntimeError("Güvenilir rejim hesaplaması durduruldu; kritik veri eksikleri: " + ", ".join(missing))
+
+          macro_system = MacroEventInterpretationSystem()
+          results = macro_system.evaluate_history(macro_input)
+          if results.empty:
+              raise RuntimeError("MacroEventInterpretationSystem boş sonuç döndürdü.")
+
+          last = results.iloc[-1]
+          computed_confirmed_id = int(last["confirmed_regime_id"])
+          candidate_id = int(last["candidate_regime_id"])
+          subtype = str(last["subtype"])
+          in_transition = bool(last["in_transition"])
+          extreme_event = bool(last.get("extreme_event", False))
+
+          continuum = compute_continuum_regime_state(
+              last,
+              confirmed_regime_id=computed_confirmed_id,
+              candidate_regime_id=candidate_id,
+              in_transition=in_transition,
+          )
+
+          circuit_triggered, circuit_reasons = compute_circuit_breaker({
+              "move": yf_data["move"],
+              "hy_oas": fred_data["hy_oas"],
+              "nfci": fred_data["nfci"],
+              "vix": yf_data["vix"],
+          })
+
+          # 3) Persistent state is the continuity/audit layer.
+          if os.path.exists(SUMMARY_PATH):
+              try:
+                  with open(SUMMARY_PATH, "r", encoding="utf-8") as handle:
+                      summary = json.load(handle)
+              except Exception:
+                  summary = {}
+          else:
+              summary = {}
+
+          monitor = summary.get("autonomous_daily_monitor", {})
+          previous_current = monitor.get("current", {}) if isinstance(monitor, dict) else {}
+          previous_confirmed = previous_current.get("confirmed_regime_id")
+          previous_candidate = previous_current.get("candidate_regime_id")
+          previous_circuit = previous_current.get("circuit_breaker_triggered")
+
+          # The core historical state machine is authoritative. A persisted
+          # regime change is accepted only when the engine is out of transition.
+          if previous_confirmed is None:
+              final_id = computed_confirmed_id
+              action = "INITIALIZE"
+          elif computed_confirmed_id != int(previous_confirmed):
+              if not in_transition:
+                  final_id = computed_confirmed_id
+                  action = "REGIME_CHANGE"
+              else:
+                  final_id = int(previous_confirmed)
+                  action = "HOLD_PREVIOUS_DURING_TRANSITION"
+          else:
+              final_id = int(previous_confirmed)
+              action = "HOLD"
+
+          final_name = REGIME_NAMES.get(final_id, "REJIMSIZ_GECIS")
+          continuum_dominant = str(continuum["dominant_regime"])
+          continuum_probs = {k: float(v) for k, v in continuum["regime_probs"].items()}
+
+          if final_id == 3:
+              continuum_agrees = continuum_dominant in {"DEFLASYON", "STAGFLASYON"}
+          else:
+              mapped_continuum = CONTINUUM_MAP.get(final_id)
+              continuum_agrees = True if mapped_continuum is None else continuum_dominant == mapped_continuum
+
+          # 4) Asset-allocation snapshot: macro indicator weights + regime multipliers.
+          asset_snapshot = {}
+          active_multipliers = get_macro_interpretation_asset_multipliers(final_id, subtype)
+          for asset in ASSETS:
+              indicator_weights = get_dynamic_asset_weights(
+                  asset,
+                  final_id,
+                  continuum_probs,
+                  in_transition=in_transition,
+              )
+              asset_snapshot[asset] = {
+                  "macro_exposure_multiplier": float(active_multipliers.get(asset, 1.0)),
+                  "indicator_weights": {name: float(indicator_weights.get(name, 0.0)) for name in INDICATORS},
+              }
+
+          now_utc = datetime.now(timezone.utc)
+          today_utc = now_utc.date().isoformat()
+          current_state = {
+              "observed_at_utc": now_utc.isoformat(),
+              "observation_date_utc": today_utc,
+              "confirmed_regime_id": final_id,
+              "confirmed_regime_name": final_name,
+              "computed_historical_confirmed_regime_id": computed_confirmed_id,
+              "candidate_regime_id": candidate_id,
+              "candidate_regime_name": REGIME_NAMES.get(candidate_id, "REJIMSIZ_GECIS"),
+              "subtype": subtype,
+              "in_transition": in_transition,
+              "extreme_event": extreme_event,
+              "action": action,
+              "previous_confirmed_regime_id": previous_confirmed,
+              "previous_candidate_regime_id": previous_candidate,
+              "continuum_dominant_regime": continuum_dominant,
+              "continuum_regime_title": continuum["regime_title"],
+              "continuum_probabilities": continuum_probs,
+              "continuum_deterministic_agreement": bool(continuum_agrees),
+              "continuum_diagnostics": continuum["diagnostics"],
+              "circuit_breaker_triggered": bool(circuit_triggered),
+              "circuit_breaker_reasons": circuit_reasons,
+              "data_health": {
+                  "critical_missing_series": missing,
+                  "series_count": len(macro_input),
+                  "evaluated_rows": int(len(results)),
+                  "latest_feature_date": str(results.index[-1]),
+              },
+              "asset_allocation_snapshot": asset_snapshot,
+          }
+
+          # Persist at least once per UTC day, plus every material regime/circuit change.
+          history = monitor.get("history", []) if isinstance(monitor, dict) else []
+          if not isinstance(history, list):
+              history = []
+
+          should_persist = (
+              previous_confirmed is None
+              or previous_circuit is None
+              or today_utc != str(previous_current.get("observation_date_utc", ""))
+              or final_id != int(previous_confirmed)
+              or candidate_id != (None if previous_candidate is None else int(previous_candidate))
+              or bool(circuit_triggered) != bool(previous_circuit)
+          )
+
+          if should_persist:
+              history.append({
+                  "timestamp_utc": now_utc.isoformat(),
+                  "action": action,
+                  "previous_confirmed_regime_id": previous_confirmed,
+                  "confirmed_regime_id": final_id,
+                  "candidate_regime_id": candidate_id,
+                  "confirmed_regime_name": final_name,
+                  "candidate_regime_name": REGIME_NAMES.get(candidate_id, "REJIMSIZ_GECIS"),
+                  "subtype": subtype,
+                  "in_transition": in_transition,
+                  "extreme_event": extreme_event,
+                  "continuum_dominant_regime": continuum_dominant,
+                  "continuum_probabilities": continuum_probs,
+                  "continuum_deterministic_agreement": bool(continuum_agrees),
+                  "circuit_breaker_triggered": bool(circuit_triggered),
+                  "circuit_breaker_reasons": circuit_reasons,
+                  "data_health": current_state["data_health"],
+              })
+              history = history[-365:]
+              summary["autonomous_daily_monitor"] = {
+                  "status": "ACTIVE",
+                  "schedule": "Every 2 hours (UTC); state persistence at least daily or on material state change",
+                  "architecture": [
+                      "fresh_data_fetch",
+                      "normalized_event_features",
+                      "deterministic_event_engine",
+                      "continuum_regime_engine",
+                      "hysteresis_and_extreme_event_confirmation",
+                      "persistent_state_arbitration",
+                      "dynamic_asset_allocation",
+                      "systemic_circuit_breaker",
+                      "daily_audit_history",
+                  ],
+                  "current": current_state,
+                  "history": history,
+                  "last_persisted_at_utc": now_utc.isoformat(),
+              }
+              with open(SUMMARY_PATH, "w", encoding="utf-8") as handle:
+                  json.dump(json_safe(summary), handle, indent=2, ensure_ascii=False, allow_nan=False)
+              print("✅ Autonomous state persisted.")
+          else:
+              print("ℹ️ No material state change; daily state file remains unchanged.")
+
+          print(json.dumps(json_safe({
+              "checked_at_utc": now_utc.isoformat(),
+              "confirmed_regime_id": final_id,
+              "candidate_regime_id": candidate_id,
+              "continuum": continuum_dominant,
+              "circuit_breaker": circuit_triggered,
+              "persisted": should_persist,
+          }), ensure_ascii=False))
+          PY
+
+      - name: "Wake Streamlit App"
+        run: |
+          echo "Streamlit uygulaması için canlı HTTP wakeup gönderiliyor..."
+          STATUS_CODE=$(curl -L -s -o /dev/null -w "%{http_code}" "https://vdthz.streamlit.app/?autonomous_check=$(date +%s)" || echo "000")
           echo "HTTP Yanıt Kodu: $STATUS_CODE"
-          if [ "$STATUS_CODE" -eq 200 ] || [ "$STATUS_CODE" -eq 302 ] || [ "$STATUS_CODE" -eq 304 ]; then
-            echo "✅ Başarılı: Streamlit uygulaması aktif, uyandırıldı ve veriler önbelleğe alındı!"
-          else
-            echo "ℹ️ İstek iletildi. Sunucu aktifleşiyor..."
+          case "$STATUS_CODE" in
+            200|302|304)
+              echo "✅ Streamlit erişilebilir."
+              ;;
+            *)
+              echo "⚠️ Streamlit yanıtı beklenen kod değil: $STATUS_CODE"
+              ;;
+          esac
+
+      - name: "Commit Autonomous State"
+        run: |
+          if git diff --quiet -- backtest_summary.json; then
+            echo "ℹ️ Persist edilecek değişiklik yok."
+            exit 0
           fi
+
+          git config user.name "macro-model-autonomous-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backtest_summary.json
+          git commit -m "chore: persist autonomous macro regime state"
+          git push origin HEAD:main
