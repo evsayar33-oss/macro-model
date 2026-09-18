@@ -153,5 +153,238 @@
       "Dinamik Getiri (Yıllık)": "%-5.5",
       "Yönsel İsabet Oranı": "%45.8"
     }
-  ]
+  ],
+  "autonomous_daily_monitor": {
+    "status": "ACTIVE",
+    "schedule": "Every 2 hours (UTC); state persistence at least daily or on material state change",
+    "architecture": [
+      "fresh_data_fetch",
+      "normalized_event_features",
+      "deterministic_event_engine",
+      "continuum_regime_engine",
+      "hysteresis_and_extreme_event_confirmation",
+      "persistent_state_arbitration",
+      "dynamic_asset_allocation",
+      "systemic_circuit_breaker",
+      "daily_audit_history"
+    ],
+    "current": {
+      "observed_at_utc": "2026-09-18T08:42:29.442977+00:00",
+      "observation_date_utc": "2026-09-18",
+      "confirmed_regime_id": 1,
+      "confirmed_regime_name": "Küresel Enflasyon & Stagflasyon Şoku",
+      "computed_historical_confirmed_regime_id": 1,
+      "candidate_regime_id": 0,
+      "candidate_regime_name": "REJIMSIZ_GECIS",
+      "subtype": "N/A",
+      "in_transition": true,
+      "extreme_event": false,
+      "action": "INITIALIZE",
+      "previous_confirmed_regime_id": null,
+      "previous_candidate_regime_id": null,
+      "continuum_dominant_regime": "STAGFLASYON",
+      "continuum_regime_title": "STAGFLASYON (%80 - Emtia/Enflasyon + Stres)",
+      "continuum_probabilities": {
+        "GOLDILOCKS": 0.029782828214932347,
+        "REFLASYON": 0.16496112724862058,
+        "STAGFLASYON": 0.8045131928239458,
+        "DEFLASYON": 0.0007428517125012834
+      },
+      "continuum_deterministic_agreement": true,
+      "continuum_diagnostics": {
+        "inflation_pressure": 0.5699724758123342,
+        "commodity_pressure": 0.5912537836674155,
+        "real_rate_pressure": 0.3409368299935291,
+        "systemic_stress": 0.3257776007972283,
+        "growth_health": 0.7794227461028986,
+        "liquidity_health": 0.7414834337750749,
+        "commodity_event_z": 0.35840561161325984,
+        "real_rate_event_z": -0.11138552350871984,
+        "stress_event_z": -0.34380214218207794
+      },
+      "circuit_breaker_triggered": false,
+      "circuit_breaker_reasons": [],
+      "data_health": {
+        "contract_schema_version": "1.1",
+        "contract_key_count": 22,
+        "critical_key_count": 9,
+        "critical_missing_series": [],
+        "series_count": 22,
+        "evaluated_rows": 3317,
+        "latest_feature_date": "2026-09-18 00:00:00"
+      },
+      "asset_allocation_snapshot": {
+        "Altın (XAU)": {
+          "macro_exposure_multiplier": 1.25,
+          "indicator_weights": {
+            "Dolar Endeksi Zayıflığı (DXY)": 0.16031126837268925,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.11542655053029727,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.14772298041740717,
+            "10Y Breakeven Enflasyon İvmesi": 0.20911931726605099,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.16764052734551793,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.05136029658571432,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.04920994170677772,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.05286966157754109,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.0201760626084384,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.010331696794783015,
+            "Öncü İstihdam (ICSA)": 0.007917891239600886,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.007913805555182129
+          }
+        },
+        "Gümüş (XAG)": {
+          "macro_exposure_multiplier": 1.1,
+          "indicator_weights": {
+            "Dolar Endeksi Zayıflığı (DXY)": 0.1621176694035866,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.12656056267155888,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.12772298041740718,
+            "10Y Breakeven Enflasyon İvmesi": 0.22911114589721346,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.1658259549457831,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.02562539927548265,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.04021811307561524,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.03853755281714198,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.012350885168970104,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.007017891239600887,
+            "Öncü İstihdam (ICSA)": 0.0583439538480393,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.006567891239600886
+          }
+        },
+        "Nasdaq 100 (NQ)": {
+          "macro_exposure_multiplier": 0.4,
+          "indicator_weights": {
+            "Dolar Endeksi Zayıflığı (DXY)": 0.07461280206179464,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.06223212762996237,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.21269846631089465,
+            "10Y Breakeven Enflasyon İvmesi": 0.10614300744133132,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.026164217520798238,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.1455293814483045,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.10505958682784115,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.12504324409016615,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.07972380434863938,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.023922388889635753,
+            "Öncü İstihdam (ICSA)": 0.012350000000000003,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.026520973430632144
+          }
+        },
+        "S&P 500 (SPX)": {
+          "macro_exposure_multiplier": 0.45,
+          "indicator_weights": {
+            "Dolar Endeksi Zayıflığı (DXY)": 0.06558057467446347,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.0662297865886138,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.16328244411746237,
+            "10Y Breakeven Enflasyon İvmesi": 0.11889098346157238,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.00865099211595874,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.10714094812163327,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.18329712267737502,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.03983823931517542,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.10899785209797391,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.007915159271663611,
+            "Öncü İstihdam (ICSA)": 0.11647214509513279,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.01370375246297524
+          }
+        },
+        "Kripto (BTC)": {
+          "macro_exposure_multiplier": 0.35,
+          "indicator_weights": {
+            "Dolar Endeksi Zayıflığı (DXY)": 0.1915956353928874,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.1960467000296972,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.16537902656936787,
+            "10Y Breakeven Enflasyon İvmesi": 0.12385046905229563,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.006854085684418757,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.03503837674837418,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.059723804348639366,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.017682993929369218,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.11805141545900363,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.0054144541224752304,
+            "Öncü İstihdam (ICSA)": 0.0054144541224752304,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.0749485845409964
+          }
+        },
+        "Ham Petrol (WTI)": {
+          "macro_exposure_multiplier": 1.35,
+          "indicator_weights": {
+            "Dolar Endeksi Zayıflığı (DXY)": 0.16211766940358657,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.11360380676172491,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.04920994170677772,
+            "10Y Breakeven Enflasyon İvmesi": 0.25843875700757774,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.18581778357694556,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.012359056537807615,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.04941171204471792,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.0037380313042192,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.014944839017009387,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.0032880313042191996,
+            "Öncü İstihdam (ICSA)": 0.1405024800958134,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.006567891239600885
+          }
+        },
+        "Bakır (HG)": {
+          "macro_exposure_multiplier": 0.85,
+          "indicator_weights": {
+            "Dolar Endeksi Zayıflığı (DXY)": 0.16227001323471726,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.1334200144976829,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.0693798769622147,
+            "10Y Breakeven Enflasyon İvmesi": 0.20745764256462604,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.11717134496923774,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.014601064134990802,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.0740817049307107,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.0067722659148516775,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.02470207311256588,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.006322260399110106,
+            "Öncü İstihdam (ICSA)": 0.16950455772220457,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.014317181557087609
+          }
+        },
+        "ABD Tahvili / Faiz (TLT)": {
+          "macro_exposure_multiplier": 0.3,
+          "indicator_weights": {
+            "Dolar Endeksi Zayıflığı (DXY)": 0.01539218351009908,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.01280728619986741,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.20737902656936785,
+            "10Y Breakeven Enflasyon İvmesi": 0.2281184933348187,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.15727701958259285,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.08253755281714197,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.026835782479201768,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.1560514154590036,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.005949999999999999,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.10034395384803928,
+            "Öncü İstihdam (ICSA)": 0.003653643099933706,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.003653643099933706
+          }
+        }
+      }
+    },
+    "history": [
+      {
+        "timestamp_utc": "2026-09-18T08:42:29.442977+00:00",
+        "action": "INITIALIZE",
+        "previous_confirmed_regime_id": null,
+        "confirmed_regime_id": 1,
+        "candidate_regime_id": 0,
+        "confirmed_regime_name": "Küresel Enflasyon & Stagflasyon Şoku",
+        "candidate_regime_name": "REJIMSIZ_GECIS",
+        "subtype": "N/A",
+        "in_transition": true,
+        "extreme_event": false,
+        "continuum_dominant_regime": "STAGFLASYON",
+        "continuum_probabilities": {
+          "GOLDILOCKS": 0.029782828214932347,
+          "REFLASYON": 0.16496112724862058,
+          "STAGFLASYON": 0.8045131928239458,
+          "DEFLASYON": 0.0007428517125012834
+        },
+        "continuum_deterministic_agreement": true,
+        "circuit_breaker_triggered": false,
+        "circuit_breaker_reasons": [],
+        "data_health": {
+          "contract_schema_version": "1.1",
+          "contract_key_count": 22,
+          "critical_key_count": 9,
+          "critical_missing_series": [],
+          "series_count": 22,
+          "evaluated_rows": 3317,
+          "latest_feature_date": "2026-09-18 00:00:00"
+        }
+      }
+    ],
+    "last_persisted_at_utc": "2026-09-18T08:42:29.442977+00:00"
+  }
 }
