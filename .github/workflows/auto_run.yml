@@ -39,10 +39,14 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           python - <<'PY'
+          import hashlib
           import json
           import math
           import os
+          import time
           from datetime import datetime, timezone
+
+          import requests
 
           import numpy as np
           import pandas as pd
@@ -57,7 +61,10 @@ jobs:
               MacroEventInterpretationSystem,
               compute_continuum_regime_state,
               compute_circuit_breaker,
+              compute_structural_risk_state,
+              assess_data_freshness,
               get_macro_interpretation_asset_multipliers,
+              normalize_macro_input,
               validate_macro_input,
           )
           from asset_regime_weights import (
@@ -84,58 +91,91 @@ jobs:
                   "https://fred.stlouisfed.org/graph/fredgraph.csv"
                   f"?id={series_id}&cosd=2014-01-01"
               )
-              try:
-                  df = pd.read_csv(url)
-                  if df.empty:
-                      return pd.Series(dtype=float)
-                  date_col = next(
-                      (c for c in df.columns if c.lower() in {"date", "observation_date"}),
-                      df.columns[0],
-                  )
-                  value_cols = [c for c in df.columns if c != date_col]
-                  if not value_cols:
-                      return pd.Series(dtype=float)
-                  value_col = value_cols[0]
-                  idx = pd.to_datetime(df[date_col], errors="coerce")
-                  vals = pd.to_numeric(df[value_col].replace(".", np.nan), errors="coerce")
-                  return clean_series(pd.Series(vals.values, index=idx))
-              except Exception as exc:
-                  print(f"[WARN] FRED {series_id}: {exc}")
-                  return pd.Series(dtype=float)
+              last_error = None
+              for attempt in range(3):
+                  try:
+                      response = requests.get(url, timeout=25)
+                      response.raise_for_status()
+                      if not response.text.strip():
+                          raise ValueError("empty FRED response")
+                      from io import StringIO
+                      df = pd.read_csv(StringIO(response.text))
+                      if df.empty:
+                          raise ValueError("empty FRED dataframe")
+                      date_col = next(
+                          (c for c in df.columns if c.lower() in {"date", "observation_date"}),
+                          df.columns[0],
+                      )
+                      value_cols = [c for c in df.columns if c != date_col]
+                      if not value_cols:
+                          raise ValueError("no FRED value column")
+                      value_col = value_cols[0]
+                      idx = pd.to_datetime(df[date_col], errors="coerce")
+                      vals = pd.to_numeric(df[value_col].replace(".", np.nan), errors="coerce")
+                      return clean_series(pd.Series(vals.values, index=idx))
+                  except Exception as exc:
+                      last_error = exc
+                      if attempt < 2:
+                          time.sleep(2 ** attempt)
+              print(f"[ERROR] FRED {series_id} failed after retries: {last_error}")
+              return pd.Series(dtype=float)
 
           def fetch_yf(ticker: str) -> pd.Series:
-              try:
-                  data = yf.download(
-                      ticker,
-                      period="12y",
-                      interval="1d",
-                      auto_adjust=False,
-                      progress=False,
-                      threads=False,
-                  )
-                  if data.empty:
-                      return pd.Series(dtype=float)
-                  if isinstance(data.columns, pd.MultiIndex):
-                      if "Close" in data.columns.get_level_values(0):
+              last_error = None
+              for attempt in range(3):
+                  try:
+                      data = yf.download(
+                          ticker,
+                          period="12y",
+                          interval="1d",
+                          auto_adjust=False,
+                          progress=False,
+                          threads=False,
+                          timeout=25,
+                      )
+                      if data.empty:
+                          raise ValueError("empty Yahoo dataframe")
+                      if isinstance(data.columns, pd.MultiIndex):
+                          if "Close" in data.columns.get_level_values(0):
+                              s = data["Close"]
+                          else:
+                              s = data.iloc[:, 0]
+                      elif "Close" in data.columns:
                           s = data["Close"]
                       else:
                           s = data.iloc[:, 0]
-                  elif "Close" in data.columns:
-                      s = data["Close"]
-                  else:
-                      s = data.iloc[:, 0]
-                  if isinstance(s, pd.DataFrame):
-                      s = s.iloc[:, 0]
-                  return clean_series(s)
-              except Exception as exc:
-                  print(f"[WARN] Yahoo {ticker}: {exc}")
-                  return pd.Series(dtype=float)
+                      if isinstance(s, pd.DataFrame):
+                          s = s.iloc[:, 0]
+                      result = clean_series(s)
+                      if result.empty:
+                          raise ValueError("Yahoo returned no usable close values")
+                      return result
+                  except Exception as exc:
+                      last_error = exc
+                      if attempt < 2:
+                          time.sleep(2 ** attempt)
+              print(f"[ERROR] Yahoo {ticker} failed after retries: {last_error}")
+              return pd.Series(dtype=float)
 
           def compute_global_net_liquidity(walcl, tga, rrp) -> pd.Series:
               df = pd.concat([walcl, tga, rrp], axis=1).sort_index().ffill().dropna()
               if df.empty:
                   return pd.Series(dtype=float)
               return (df.iloc[:, 0] - df.iloc[:, 1] + df.iloc[:, 2] * 1000.0).dropna()
+
+          def data_fingerprint(normalized_input: dict) -> str:
+              latest = {}
+              for key in MACRO_INPUT_KEYS:
+                  series = normalized_input.get(key, pd.Series(dtype=float))
+                  if series.empty:
+                      latest[key] = None
+                  else:
+                      latest[key] = {
+                          "date": pd.Timestamp(series.index[-1]).isoformat(),
+                          "value": round(float(series.iloc[-1]), 10),
+                      }
+              payload = json.dumps(latest, sort_keys=True, ensure_ascii=False)
+              return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
           def json_safe(obj):
               if isinstance(obj, (np.bool_, bool)):
@@ -193,19 +233,27 @@ jobs:
           if contract_report["unknown_keys"] or contract_report["missing_keys"]:
               raise RuntimeError("Macro input contract mismatch: " + contract_report["message"])
 
+          normalized_input = normalize_macro_input(macro_input, strict=True)
+          freshness = assess_data_freshness(normalized_input)
           missing = list(contract_report["critical_missing_keys"])
-          if len(missing) >= 3:
+          stale_critical = [k for k in CRITICAL_INPUT_KEYS if k in freshness["stale_keys"]]
+          if len(missing) + len(stale_critical) >= 3:
               raise RuntimeError(
-                  "Güvenilir rejim hesaplaması durduruldu; kritik veri eksikleri: "
-                  + ", ".join(missing)
+                  "Güvenilir rejim hesaplaması durduruldu; kritik veri eksikleri/eski veriler: "
+                  + ", ".join(sorted(set(missing + stale_critical)))
               )
           print(
               "✅ Macro event contract " + MACRO_EVENT_INPUT_SCHEMA_VERSION
               + " validated; keys=" + str(len(MACRO_INPUT_KEYS))
           )
+          print(
+              "📡 Data freshness: fresh=" + str(freshness["fresh_count"])
+              + ", stale=" + str(freshness["stale_count"])
+              + ", missing=" + str(freshness["missing_count"])
+          )
 
           macro_system = MacroEventInterpretationSystem()
-          results = macro_system.evaluate_history(macro_input)
+          results = macro_system.evaluate_history(normalized_input)
           if results.empty:
               raise RuntimeError("MacroEventInterpretationSystem boş sonuç döndürdü.")
 
@@ -222,6 +270,8 @@ jobs:
               candidate_regime_id=candidate_id,
               in_transition=in_transition,
           )
+          structural = continuum.get("structural_state", compute_structural_risk_state(last))
+          fingerprint = data_fingerprint(normalized_input)
 
           circuit_triggered, circuit_reasons = compute_circuit_breaker({
               "move": yf_data["move"],
@@ -308,6 +358,11 @@ jobs:
               "continuum_probabilities": continuum_probs,
               "continuum_deterministic_agreement": bool(continuum_agrees),
               "continuum_diagnostics": continuum["diagnostics"],
+              "structural_state": structural,
+              "portfolio_risk_budget_pct": float(structural.get("portfolio_risk_budget", 0.50) * 100.0),
+              "cash_target_pct": float(structural.get("cash_target_pct", 50.0)),
+              "data_fingerprint": fingerprint,
+              "data_freshness": freshness,
               "circuit_breaker_triggered": bool(circuit_triggered),
               "circuit_breaker_reasons": circuit_reasons,
               "data_health": {
@@ -315,9 +370,17 @@ jobs:
                   "contract_key_count": len(MACRO_INPUT_KEYS),
                   "critical_key_count": len(CRITICAL_INPUT_KEYS),
                   "critical_missing_series": missing,
-                  "series_count": len(macro_input),
+                  "critical_stale_series": stale_critical,
+                  "series_count": len(normalized_input),
                   "evaluated_rows": int(len(results)),
                   "latest_feature_date": str(results.index[-1]),
+                  "latest_source_observation_by_series": {
+                      key: (pd.Timestamp(series.index[-1]).isoformat() if not series.empty else None)
+                      for key, series in normalized_input.items()
+                  },
+                  "fresh_count": int(freshness["fresh_count"]),
+                  "stale_count": int(freshness["stale_count"]),
+                  "missing_count": int(freshness["missing_count"]),
               },
               "asset_allocation_snapshot": asset_snapshot,
           }
@@ -327,13 +390,16 @@ jobs:
           if not isinstance(history, list):
               history = []
 
+          previous_fingerprint = previous_current.get("data_fingerprint")
           should_persist = (
               previous_confirmed is None
               or previous_circuit is None
+              or previous_fingerprint != fingerprint
               or today_utc != str(previous_current.get("observation_date_utc", ""))
               or final_id != int(previous_confirmed)
               or candidate_id != (None if previous_candidate is None else int(previous_candidate))
               or bool(circuit_triggered) != bool(previous_circuit)
+              or structural.get("state") != previous_current.get("structural_state", {}).get("state")
           )
 
           if should_persist:
@@ -351,6 +417,9 @@ jobs:
                   "continuum_dominant_regime": continuum_dominant,
                   "continuum_probabilities": continuum_probs,
                   "continuum_deterministic_agreement": bool(continuum_agrees),
+                  "structural_state": structural,
+                  "data_fingerprint": fingerprint,
+                  "data_freshness": freshness,
                   "circuit_breaker_triggered": bool(circuit_triggered),
                   "circuit_breaker_reasons": circuit_reasons,
                   "data_health": current_state["data_health"],
@@ -358,9 +427,11 @@ jobs:
               history = history[-365:]
               summary["autonomous_daily_monitor"] = {
                   "status": "ACTIVE",
-                  "schedule": "Every 2 hours (UTC); state persistence at least daily or on material state change",
+                  "schedule": "Every 2 hours (UTC); persisted whenever source data changes, structural state changes, circuit state changes, or at least daily",
                   "architecture": [
-                      "fresh_data_fetch",
+                      "scheduled_fresh_data_fetch_with_retries",
+                      "source_freshness_validation",
+                      "canonical_contract_normalization",
                       "normalized_event_features",
                       "deterministic_event_engine",
                       "continuum_regime_engine",
@@ -378,13 +449,17 @@ jobs:
                   json.dump(json_safe(summary), handle, indent=2, ensure_ascii=False, allow_nan=False)
               print("✅ Autonomous state persisted.")
           else:
-              print("ℹ️ No material state change; daily state file remains unchanged.")
+              print("ℹ️ Fresh data were evaluated, but the persisted state fingerprint is unchanged; repository file is not rewritten.")
 
           print(json.dumps(json_safe({
               "checked_at_utc": now_utc.isoformat(),
               "confirmed_regime_id": final_id,
               "candidate_regime_id": candidate_id,
               "continuum": continuum_dominant,
+              "structural_state": structural.get("state"),
+              "risk_appetite_score": structural.get("risk_appetite_score"),
+              "tightening_score": structural.get("tightening_score"),
+              "cash_target_pct": structural.get("cash_target_pct"),
               "circuit_breaker": circuit_triggered,
               "persisted": should_persist,
           }), ensure_ascii=False))
