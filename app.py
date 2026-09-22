@@ -5,96 +5,79 @@ import yfinance as yf
 import requests
 import os
 import json
+import importlib
 from fredapi import Fred
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
-# --- ROBUST ENGINE LOADING ---
-# Import the modules as namespaces instead of importing many symbols directly.
-# This prevents a stale/mismatched deployment from failing at a single
-# `from module import (...)` statement and gives us an explicit API check.
-import importlib
+# Streamlit page configuration must execute before any other Streamlit command.
+st.set_page_config(page_title="Makro Trend v2.3 (Continuum Master Grade)", layout="wide")
 
+# Robust engine loading: namespace imports + explicit API contract.
 try:
     import macro_event_interpretation as macro_engine
     importlib.invalidate_caches()
     macro_engine = importlib.reload(macro_engine)
 except Exception as exc:
-    st.error("❌ Macro engine yüklenemedi. Deployment içindeki macro_event_interpretation.py kontrol edilmeli.")
+    st.error("❌ Macro engine yüklenemedi. macro_event_interpretation.py sürümü kontrol edilmeli.")
     st.exception(exc)
     st.stop()
 
 _REQUIRED_MACRO_API = (
-    "MacroEventInterpretationSystem",
-    "RegimeThresholdConfig",
-    "get_macro_interpretation_asset_multipliers",
-    "render_macro_scorecard_ui",
-    "compute_continuum_regime_state",
-    "compute_structural_risk_state",
-    "compute_portfolio_asset_tilt",
-    "assess_data_freshness",
-    "compute_circuit_breaker",
-    "compute_net_liquidity",
-    "validate_macro_input",
-    "compute_effective_macro_asset_multiplier",
-    "compute_target_portfolio_weights",
-    "normalize_macro_input",
-    "MACRO_EVENT_INPUT_SCHEMA_VERSION",
+    "MacroEventInterpretationSystem", "RegimeThresholdConfig",
+    "get_macro_interpretation_asset_multipliers", "render_macro_scorecard_ui",
+    "compute_continuum_regime_state", "compute_structural_risk_state",
+    "compute_portfolio_asset_tilt", "assess_data_freshness",
+    "compute_circuit_breaker", "compute_net_liquidity", "validate_macro_input",
+    "compute_effective_macro_asset_multiplier", "compute_target_portfolio_weights",
+    "normalize_macro_input", "MACRO_EVENT_INPUT_SCHEMA_VERSION",
+    "compute_asset_signal_state", "get_asset_signal_label", "ASSET_MARKET_TICKERS",
 )
-
-_missing_macro_api = [name for name in _REQUIRED_MACRO_API if not hasattr(macro_engine, name)]
+_missing_macro_api=[name for name in _REQUIRED_MACRO_API if not hasattr(macro_engine,name)]
 if _missing_macro_api:
-    st.error(
-        "❌ Macro engine API uyuşmazlığı. Eksik semboller: "
-        + ", ".join(_missing_macro_api)
-    )
+    st.error("❌ Macro engine API uyuşmazlığı: "+", ".join(_missing_macro_api))
     st.stop()
 
-MacroEventInterpretationSystem = macro_engine.MacroEventInterpretationSystem
-RegimeThresholdConfig = macro_engine.RegimeThresholdConfig
-get_macro_interpretation_asset_multipliers = macro_engine.get_macro_interpretation_asset_multipliers
-render_macro_scorecard_ui = macro_engine.render_macro_scorecard_ui
-compute_continuum_regime_state = macro_engine.compute_continuum_regime_state
-compute_structural_risk_state = macro_engine.compute_structural_risk_state
-compute_portfolio_asset_tilt = macro_engine.compute_portfolio_asset_tilt
-assess_data_freshness = macro_engine.assess_data_freshness
-compute_circuit_breaker = macro_engine.compute_circuit_breaker
-compute_net_liquidity = macro_engine.compute_net_liquidity
-validate_macro_input = macro_engine.validate_macro_input
-compute_effective_macro_asset_multiplier = macro_engine.compute_effective_macro_asset_multiplier
-compute_target_portfolio_weights = macro_engine.compute_target_portfolio_weights
-normalize_macro_input = macro_engine.normalize_macro_input
-MACRO_EVENT_INPUT_SCHEMA_VERSION = macro_engine.MACRO_EVENT_INPUT_SCHEMA_VERSION
+MacroEventInterpretationSystem=macro_engine.MacroEventInterpretationSystem
+RegimeThresholdConfig=macro_engine.RegimeThresholdConfig
+get_macro_interpretation_asset_multipliers=macro_engine.get_macro_interpretation_asset_multipliers
+render_macro_scorecard_ui=macro_engine.render_macro_scorecard_ui
+compute_continuum_regime_state=macro_engine.compute_continuum_regime_state
+compute_structural_risk_state=macro_engine.compute_structural_risk_state
+compute_portfolio_asset_tilt=macro_engine.compute_portfolio_asset_tilt
+assess_data_freshness=macro_engine.assess_data_freshness
+compute_circuit_breaker=macro_engine.compute_circuit_breaker
+compute_net_liquidity=macro_engine.compute_net_liquidity
+validate_macro_input=macro_engine.validate_macro_input
+compute_effective_macro_asset_multiplier=macro_engine.compute_effective_macro_asset_multiplier
+compute_target_portfolio_weights=macro_engine.compute_target_portfolio_weights
+normalize_macro_input=macro_engine.normalize_macro_input
+MACRO_EVENT_INPUT_SCHEMA_VERSION=macro_engine.MACRO_EVENT_INPUT_SCHEMA_VERSION
+compute_asset_signal_state=macro_engine.compute_asset_signal_state
+get_asset_signal_label=macro_engine.get_asset_signal_label
+ASSET_MARKET_TICKERS=macro_engine.ASSET_MARKET_TICKERS
 
 try:
     import asset_regime_weights as asset_engine
     importlib.invalidate_caches()
-    asset_engine = importlib.reload(asset_engine)
+    asset_engine=importlib.reload(asset_engine)
 except Exception as exc:
     st.error("❌ Asset weight engine yüklenemedi.")
     st.exception(exc)
     st.stop()
 
-_REQUIRED_ASSET_API = (
-    "get_dynamic_asset_weights",
-    "get_asset_regime_weight_matrix",
-    "INDICATORS",
-)
-
-_missing_asset_api = [name for name in _REQUIRED_ASSET_API if not hasattr(asset_engine, name)]
+_REQUIRED_ASSET_API=("get_dynamic_asset_weights","get_asset_regime_weight_matrix","INDICATORS")
+_missing_asset_api=[name for name in _REQUIRED_ASSET_API if not hasattr(asset_engine,name)]
 if _missing_asset_api:
-    st.error(
-        "❌ Asset weight engine API uyuşmazlığı. Eksik semboller: "
-        + ", ".join(_missing_asset_api)
-    )
+    st.error("❌ Asset weight engine API uyuşmazlığı: "+", ".join(_missing_asset_api))
     st.stop()
 
-get_dynamic_asset_weights = asset_engine.get_dynamic_asset_weights
-get_asset_regime_weight_matrix = asset_engine.get_asset_regime_weight_matrix
-ASSET_INDICATORS = asset_engine.INDICATORS
+get_dynamic_asset_weights=asset_engine.get_dynamic_asset_weights
+get_asset_regime_weight_matrix=asset_engine.get_asset_regime_weight_matrix
+ASSET_INDICATORS=asset_engine.INDICATORS
 
 # --- 1. SAYFA VE API AYARLARI ---
-st.set_page_config(page_title="Makro Trend v2.2 (Continuum Master Grade)", layout="wide")
+st.set_page_config(page_title="Makro Trend v33.0 (Continuum Master Grade)", layout="wide")
 
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
@@ -367,7 +350,7 @@ def process_indicator(data_series, indicator_name, invert=False):
 # --- 6. ARAYÜZ VE UYGULAMA ---
 st.title("🏛️ KÜRESEL MAKRO MODELİ & OLAY YORUMLAMA SİSTEMİ")
 st.caption(f"🧩 Macro Engine: {getattr(macro_engine, '__name__', 'macro_event_interpretation')} | Contract Schema: {MACRO_EVENT_INPUT_SCHEMA_VERSION} | API: ✅ UYUMLU")
-st.markdown("**Makro Olay Yorumlama Sistemi v2.2 (Deterministik Şok & Risk Motoru) & Sürekli Portföy Karması (Continuum Master)**")
+st.markdown("**Makro Olay Yorumlama Sistemi v1.0 (Deterministik Şok & Risk Motoru) & Sürekli Portföy Karması (Continuum Master)**")
 
 st.sidebar.header("VARLIK VE RİSK YÖNETİMİ")
 asset = st.sidebar.radio("Analiz Edilecek Varlık:", (
@@ -519,7 +502,7 @@ with st.expander('📡 Veri Tazeliği ve Kaynak Tarihlerini İncele'):
 
 # --- ÜST SEVİYE SEKME MİMARİSİ ---
 main_tab1, main_tab2, main_tab3 = st.tabs([
-    "🏛️ Makro Olay Yorumlama Sistemi (v1.0)",
+    "🏛️ Makro Olay Yorumlama Sistemi (v2.3)",
     "🌐 Sürekli Makro Portföy Motoru (Continuum Master)",
     "📊 Rejim Backtest & Eşik Kalibrasyon Raporu"
 ])
@@ -528,7 +511,7 @@ main_tab1, main_tab2, main_tab3 = st.tabs([
 # SEKME 1: MAKRO OLAY YORUMLAMA SİSTEMİ v1.0
 # ==========================================
 with main_tab1:
-    st.markdown("## 🏛️ Makro Olay Yorumlama Sistemi v1.0")
+    st.markdown("## 🏛️ Makro Olay Yorumlama Sistemi v2.3")
     st.markdown("""
     * **Deterministik & Karşılıklı Dışlayıcı Mimari:** Aynı anda kesinlikle tek bir rejim aktiftir (`active_regime_count: 1`).
     * **52 Haftalık Kayan Z-Skor Normalizasyonu:** Sabit eşik sapması önlenir, göstergeler 252 günlük dinamik çapa ile izlenir.
@@ -658,7 +641,8 @@ with main_tab2:
         else:
             active_mult = min(1.0, 1.0 / blended_multiplier)
             
-        contribution = z * dyn_weight * active_mult
+        asset_factor_contribution = float(selected_asset_state.get("factor_contributions", {}).get(name, 0.0))
+        contribution = asset_factor_contribution * active_mult
         total_score += contribution
         
         if val == 0:
@@ -679,13 +663,36 @@ with main_tab2:
         })
 
     raw_portfolio_score = total_score
-    final_trend_score = float(np.clip(raw_portfolio_score * 45.0, -100.0, 100.0))
-    
-    if circuit_triggered and final_trend_score > 0:
-        final_trend_score = final_trend_score * 0.35
-        
-    # Makro Olay Yorumlama Sistemi Çarpanı Entegrasyonu
-    final_trend_score = float(np.clip(final_trend_score * effective_macro_mult, -100.0, 100.0))
+    macro_only_score = float(np.clip(raw_portfolio_score * 45.0, -100.0, 100.0))
+
+    # ======================================================================
+    # 8-ASSET SUPER SCANNER
+    # ======================================================================
+    factor_scores = {name: float(process_indicator(data_series, name, invert)[0]) for name, data_series, _w, invert in metrics_spec}
+    asset_price_series = {asset_name: fetch_yf_data(ticker) for asset_name, ticker in ASSET_MARKET_TICKERS.items()}
+    asset_scan = {}
+    for scan_asset, scan_prices in asset_price_series.items():
+        scan_weights = get_dynamic_asset_weights(scan_asset, confirmed_regime_id, regime_probs, macro_in_trans)
+        scan_mult = macro_asset_mults.get(scan_asset, 1.0)
+        asset_scan[scan_asset] = compute_asset_signal_state(scan_asset, factor_scores, scan_weights, scan_prices, structural_state, confirmed_regime_id, scan_mult)
+    asset_signal_scores = {k: float(v['score']) for k,v in asset_scan.items()}
+    selected_asset_state = asset_scan.get(asset, {})
+    final_trend_score = float(selected_asset_state.get('score', macro_only_score))
+    st.metric(f"{asset} Model Sinyali", selected_asset_state.get("label", "NÖTR"), f"Skor {selected_asset_state.get('score',0.0):+.1f} | Güven %{selected_asset_state.get('confidence',0.0)*100:.0f}")
+    target_portfolio_weights = compute_target_portfolio_weights(confirmed_regime_id, active_macro_subtype, structural_state, asset_signal_scores=asset_signal_scores)
+
+    st.markdown("### 🌐 8 Varlık Süper Tarama — Makro + Piyasa + Risk Döngüsü")
+    st.caption("Her varlık kendi makro duyarlılık işaretleri, 5G/20G/60G piyasa teyidi ve stratejik/taktik risk döngüsü ile değerlendirilir.")
+    scan_rows=[]
+    for scan_asset,state in asset_scan.items():
+        mk=state.get('market',{})
+        scan_rows.append({"Varlık":scan_asset,"Sinyal":state.get('label','NÖTR'),"Skor":round(float(state.get('score',0)),1),"Güven":f"%{float(state.get('confidence',0))*100:.0f}","5G Z":round(float(mk.get('ret5_z',0)),2),"20G Z":round(float(mk.get('ret20_z',0)),2),"60G Z":round(float(mk.get('ret60_z',0)),2),"Hedef Pay":f"%{target_portfolio_weights.get(scan_asset,0):.1f}"})
+    st.dataframe(pd.DataFrame(scan_rows).sort_values('Skor',ascending=False),use_container_width=True,hide_index=True)
+
+    st.markdown("### 🧭 Gerçek Hedef Portföy Dağılımı")
+    st.caption("Varlık sinyali + makro rejim + risk döngüsü birlikte kullanılır; nakit portföy risk bütçesinin tamamlayıcısıdır.")
+    portfolio_df=pd.DataFrame([{"Varlık":k,"Hedef Pay (%)":round(v,2)} for k,v in target_portfolio_weights.items()])
+    st.dataframe(portfolio_df,use_container_width=True,hide_index=True)
 
     # Pozisyonlama & Volatilite Hedefleme
     ticker_asset_map = {
@@ -734,7 +741,7 @@ with main_tab2:
             mode = "gauge+number",
             value = final_trend_score,
             domain = {'x': [0, 1], 'y': [0, 1]},
-            title = {'text': f"{asset}<br>Continuum Master Skoru", 'font': {'size': 20}},
+            title = {'text': f"{asset}<br>Varlık Sinyal Skoru", 'font': {'size': 20}},
             gauge = {
                 'axis': {'range': [-100, 100], 'tickwidth': 1},
                 'bar': {'color': "black"},

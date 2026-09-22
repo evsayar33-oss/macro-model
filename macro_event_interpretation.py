@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Tuple, Any
 # ============================================================================
 # SHARED MACRO EVENT INPUT CONTRACT
 # ============================================================================
-MACRO_EVENT_INPUT_SCHEMA_VERSION = "2.2"
+MACRO_EVENT_INPUT_SCHEMA_VERSION = "2.3"
 MACRO_INPUT_KEYS = (
     "oil", "bdi", "hy_oas", "ig_oas", "spx", "ust10y", "ust2y",
     "dtwex", "dxy", "usdjpy", "vix", "move", "btc", "dfii10",
@@ -70,6 +70,130 @@ RISK_APPETITE_ASSETS = {
 
 PORTFOLIO_HIGH_BETA_ASSETS = set(RISK_APPETITE_ASSETS)
 PORTFOLIO_DEFENSIVE_ASSETS = {"Altın (XAU)", "ABD Tahvili / Faiz (TLT)"}
+
+# Asset-aware polarity map. The same macro factor can be supportive for one
+# asset and adverse for another; the old runtime treated all assets alike.
+ASSET_SIGNAL_POLARITY = {
+    "Altın (XAU)": {
+        "Dolar Endeksi Zayıflığı (DXY)": 1.0,
+        "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.6,
+        "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 1.0,
+        "10Y Breakeven Enflasyon İvmesi": 1.0,
+        "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.9,
+        "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.8,
+        "Yüksek Getirili Kredi Stresi (HY OAS)": -1.0,
+        "MOVE Endeksi (Tahvil Volatilitesi)": -0.4,
+        "VIX Endeksi (Hisse Volatilitesi)": -0.5,
+        "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": -0.2,
+        "Öncü İstihdam (ICSA)": -0.4,
+        "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.2,
+    },
+    "Gümüş (XAG)": {
+        "Dolar Endeksi Zayıflığı (DXY)": 1.0,
+        "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.9,
+        "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.9,
+        "10Y Breakeven Enflasyon İvmesi": 0.9,
+        "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.8,
+        "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.9,
+        "Yüksek Getirili Kredi Stresi (HY OAS)": 0.5,
+        "MOVE Endeksi (Tahvil Volatilitesi)": 0.2,
+        "VIX Endeksi (Hisse Volatilitesi)": 0.3,
+        "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.5,
+        "Öncü İstihdam (ICSA)": 0.6,
+        "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.6,
+    },
+    "Nasdaq 100 (NQ)": {
+        "Dolar Endeksi Zayıflığı (DXY)": 1.0,
+        "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 1.0,
+        "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 1.0,
+        "10Y Breakeven Enflasyon İvmesi": -0.5,
+        "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": -0.5,
+        "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 1.0,
+        "Yüksek Getirili Kredi Stresi (HY OAS)": 1.0,
+        "MOVE Endeksi (Tahvil Volatilitesi)": 1.0,
+        "VIX Endeksi (Hisse Volatilitesi)": 1.0,
+        "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.2,
+        "Öncü İstihdam (ICSA)": 0.8,
+        "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.8,
+    },
+    "S&P 500 (SPX)": {
+        "Dolar Endeksi Zayıflığı (DXY)": 0.9,
+        "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 1.0,
+        "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.8,
+        "10Y Breakeven Enflasyon İvmesi": -0.2,
+        "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": -0.2,
+        "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 1.0,
+        "Yüksek Getirili Kredi Stresi (HY OAS)": 1.0,
+        "MOVE Endeksi (Tahvil Volatilitesi)": 0.9,
+        "VIX Endeksi (Hisse Volatilitesi)": 1.0,
+        "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.6,
+        "Öncü İstihdam (ICSA)": 0.9,
+        "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.9,
+    },
+    "Kripto (BTC)": {
+        "Dolar Endeksi Zayıflığı (DXY)": 1.0,
+        "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 1.0,
+        "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.8,
+        "10Y Breakeven Enflasyon İvmesi": 0.1,
+        "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.0,
+        "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 1.0,
+        "Yüksek Getirili Kredi Stresi (HY OAS)": 1.0,
+        "MOVE Endeksi (Tahvil Volatilitesi)": 0.8,
+        "VIX Endeksi (Hisse Volatilitesi)": 0.9,
+        "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.2,
+        "Öncü İstihdam (ICSA)": 0.8,
+        "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.9,
+    },
+    "Ham Petrol (WTI)": {
+        "Dolar Endeksi Zayıflığı (DXY)": 0.7,
+        "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.6,
+        "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.2,
+        "10Y Breakeven Enflasyon İvmesi": 1.0,
+        "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.8,
+        "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.5,
+        "Yüksek Getirili Kredi Stresi (HY OAS)": 0.8,
+        "MOVE Endeksi (Tahvil Volatilitesi)": 0.4,
+        "VIX Endeksi (Hisse Volatilitesi)": 0.4,
+        "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.6,
+        "Öncü İstihdam (ICSA)": 0.8,
+        "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.6,
+    },
+    "Bakır (HG)": {
+        "Dolar Endeksi Zayıflığı (DXY)": 0.8,
+        "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.8,
+        "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.4,
+        "10Y Breakeven Enflasyon İvmesi": 0.7,
+        "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.6,
+        "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.7,
+        "Yüksek Getirili Kredi Stresi (HY OAS)": 0.9,
+        "MOVE Endeksi (Tahvil Volatilitesi)": 0.6,
+        "VIX Endeksi (Hisse Volatilitesi)": 0.6,
+        "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.8,
+        "Öncü İstihdam (ICSA)": 0.9,
+        "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.8,
+    },
+    "ABD Tahvili / Faiz (TLT)": {
+        "Dolar Endeksi Zayıflığı (DXY)": 0.3,
+        "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.7,
+        "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 1.0,
+        "10Y Breakeven Enflasyon İvmesi": -1.0,
+        "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": -0.8,
+        "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 1.0,
+        "Yüksek Getirili Kredi Stresi (HY OAS)": -0.5,
+        "MOVE Endeksi (Tahvil Volatilitesi)": 0.4,
+        "VIX Endeksi (Hisse Volatilitesi)": 0.1,
+        "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": -0.4,
+        "Öncü İstihdam (ICSA)": -0.2,
+        "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.3,
+    },
+}
+
+ASSET_MARKET_TICKERS = {
+    "Altın (XAU)": "GC=F", "Gümüş (XAG)": "SI=F", "Nasdaq 100 (NQ)": "QQQ",
+    "S&P 500 (SPX)": "SPY", "Kripto (BTC)": "BTC-USD", "Ham Petrol (WTI)": "CL=F",
+    "Bakır (HG)": "HG=F", "ABD Tahvili / Faiz (TLT)": "TLT",
+}
+
 
 def _business_day_age(latest: pd.Timestamp, as_of: pd.Timestamp) -> int:
     latest_d = pd.Timestamp(latest).date()
@@ -178,73 +302,38 @@ def assess_data_freshness(data: Dict[str, Any], as_of: Optional[pd.Timestamp] = 
     }
 
 def compute_structural_risk_state(row: Optional[pd.Series]) -> Dict[str, Any]:
-    """Two-speed portfolio-risk state with strategic and tactical layers."""
+    """Two-speed portfolio-risk state with responsive tactical breadth and slow structural cycle."""
     if row is None or len(row) == 0:
-        return {
-            "state":"BALANCED","risk_appetite_score":0.50,"strategic_risk_score":0.50,
-            "tactical_risk_score":0.50,"tactical_risk_on_event_score":0.50,
-            "tightening_score":0.50,"tightening_score_20":0.50,"tightening_score_60":0.50,
-            "defensive_stress_score":0.50,"persistence_score":0.0,"alignment_score":0.0,
-            "slow_risk_appetite_20":0.50,"slow_risk_appetite_60":0.50,"fast_risk_appetite":0.50,
-            "risk_asset_breadth_5":0.50,"risk_asset_breadth_20":0.50,"risk_asset_breadth_60":0.50,
-            "risk_rotation_5":0.50,"risk_rotation_20":0.50,"risk_rotation_60":0.50,
-            "gold_relative_weakness_5":0.0,"gold_relative_weakness_20":0.0,"gold_relative_weakness_60":0.0,
-            "portfolio_risk_budget":0.50,"cash_target_pct":50.0,"confidence":0.0,
-            "risk_on_streak_days":0,"tightening_streak_days":0,"defensive_streak_days":0,
-        }
+        return {"state":"BALANCED","risk_appetite_score":0.50,"strategic_risk_score":0.50,"tactical_risk_score":0.50,"tactical_risk_on_event_score":0.50,"tightening_score":0.50,"tightening_score_20":0.50,"tightening_score_60":0.50,"defensive_stress_score":0.50,"persistence_score":0.0,"alignment_score":0.0,"slow_risk_appetite_20":0.50,"slow_risk_appetite_60":0.50,"fast_risk_appetite":0.50,"risk_asset_breadth_5":0.50,"risk_asset_breadth_20":0.50,"risk_asset_breadth_60":0.50,"risk_rotation_5":0.50,"risk_rotation_20":0.50,"risk_rotation_60":0.50,"gold_relative_weakness_5":0.0,"gold_relative_weakness_20":0.0,"gold_relative_weakness_60":0.0,"portfolio_risk_budget":0.50,"cash_target_pct":50.0,"confidence":0.0,"risk_on_streak_days":0,"tightening_streak_days":0,"defensive_streak_days":0}
     get=lambda k,d=0.0:_safe_float(row.get(k,d),d)
-    breadth5=float(np.clip(get('risk_asset_breadth_5',0.50),0.0,1.0))
-    breadth20=float(np.clip(get('risk_asset_breadth_20',0.50),0.0,1.0))
-    breadth60=float(np.clip(get('risk_asset_breadth_60',0.50),0.0,1.0))
-    rotation5=float(np.clip(_sigmoid01(get('gold_relative_weakness_5_z'),0.90),0.0,1.0))
-    rotation20=float(np.clip(_sigmoid01(get('gold_relative_weakness_20_z'),0.90),0.0,1.0))
-    rotation60=float(np.clip(_sigmoid01(get('gold_relative_weakness_60_z'),0.90),0.0,1.0))
-    fast_basket=get('cross_asset_risk_basket5d_z', get('basket_ret5d_z'))
-    slow20_basket=get('cross_asset_risk_basket20d_z', get('basket_ret20d_z'))
-    slow60_basket=get('cross_asset_risk_basket60d_z', get('basket_ret60d_z'))
-    fast_ra=float(np.mean([_sigmoid01(fast_basket),_sigmoid01(-get('hy_oas_z')),_sigmoid01(-get('vix_level_z')),_sigmoid01(get('ndl_z')),_sigmoid01(-get('dxy_chg5_z')),breadth5,rotation5]))
-    slow20=float(np.mean([_sigmoid01(slow20_basket),_sigmoid01(-get('hy_oas_chg20_z')),_sigmoid01(-get('vix_chg20_z')),_sigmoid01(get('ndl_chg20_z')),_sigmoid01(-get('dxy_chg20_z')),breadth20,rotation20]))
-    slow60=float(np.mean([_sigmoid01(slow60_basket),_sigmoid01(-get('hy_oas_chg60_z')),_sigmoid01(-get('vix_chg60_z')),_sigmoid01(get('ndl_chg60_z')),_sigmoid01(-get('dxy_chg60_z')),breadth60,rotation60]))
-    strategic=float(np.clip(0.35*slow20+0.65*slow60,0.0,1.0))
-    tactical=float(np.clip(0.65*fast_ra+0.35*slow20,0.0,1.0))
-    ra=float(np.clip(0.45*strategic+0.55*tactical,0.0,1.0))
+    b5=float(np.clip(get('risk_asset_breadth_5',0.5),0,1)); b20=float(np.clip(get('risk_asset_breadth_20',0.5),0,1)); b60=float(np.clip(get('risk_asset_breadth_60',0.5),0,1))
+    r5=float(np.clip(_sigmoid01(get('gold_relative_weakness_5_z'),0.9),0,1)); r20=float(np.clip(_sigmoid01(get('gold_relative_weakness_20_z'),0.9),0,1)); r60=float(np.clip(_sigmoid01(get('gold_relative_weakness_60_z'),0.9),0,1))
+    fb=get('cross_asset_risk_basket5d_z',get('basket_ret5d_z')); s20=get('cross_asset_risk_basket20d_z',get('basket_ret20d_z')); s60=get('cross_asset_risk_basket60d_z',get('basket_ret60d_z'))
+    fast=float(np.mean([_sigmoid01(fb),_sigmoid01(-get('hy_oas_z')),_sigmoid01(-get('vix_level_z')), _sigmoid01(get('ndl_z')),_sigmoid01(-get('dxy_chg5_z')),b5,r5]))
+    slow20=float(np.mean([_sigmoid01(s20),_sigmoid01(-get('hy_oas_chg20_z')),_sigmoid01(-get('vix_chg20_z')), _sigmoid01(get('ndl_chg20_z')),_sigmoid01(-get('dxy_chg20_z')),b20,r20]))
+    slow60=float(np.mean([_sigmoid01(s60),_sigmoid01(-get('hy_oas_chg60_z')),_sigmoid01(-get('vix_chg60_z')), _sigmoid01(get('ndl_chg60_z')),_sigmoid01(-get('dxy_chg60_z')),b60,r60]))
+    strategic=float(np.clip(0.35*slow20+0.65*slow60,0,1)); tactical=float(np.clip(0.70*fast+0.30*slow20,0,1)); ra=float(np.clip(0.45*strategic+0.55*tactical,0,1))
     tight20=float(np.mean([_sigmoid01(get('dfii10_chg20_z')),_sigmoid01(get('dxy_chg20_z')),_sigmoid01(get('hy_oas_chg20_z')),_sigmoid01(-get('ndl_chg20_z'))]))
     tight60=float(np.mean([_sigmoid01(get('dfii10_chg60_z')),_sigmoid01(get('dxy_chg60_z')),_sigmoid01(get('hy_oas_chg60_z')),_sigmoid01(-get('ndl_chg60_z'))]))
-    tight=float(np.clip(0.35*tight20+0.65*tight60,0.0,1.0))
-    defensive=float(np.clip(np.mean([_sigmoid01(get('hy_oas_z'),0.9),_sigmoid01(get('vix_level_z'),0.9),_sigmoid01(get('move_pctl252')-70.0,18.0),_sigmoid01(get('nfci_z'),0.9),_sigmoid01(-fast_basket,0.9)]),0.0,1.0))
-    tactical_event=float(np.clip(np.mean([_sigmoid01(fast_basket,0.75),rotation5,breadth5,_sigmoid01(-get('hy_oas_chg5_z'),0.85),_sigmoid01(-get('vix_chg5_z'),0.85),_sigmoid01(-get('dxy_chg5_z'),0.85)]),0.0,1.0))
-    alignment=float(np.clip(1.0-abs(slow20-slow60),0.0,1.0))
-    persistence=float(np.clip(0.35*abs(strategic-0.50)*2.0+0.25*abs(tactical-0.50)*2.0+0.20*alignment+0.20*max(breadth20-0.50,0.0),0.0,1.0))
+    tightening=float(np.clip(0.35*tight20+0.65*tight60,0,1))
+    defensive=float(np.clip(np.mean([_sigmoid01(get('hy_oas_z'),0.9),_sigmoid01(get('vix_level_z'),0.9),_sigmoid01(get('move_pctl252')-70,18),_sigmoid01(get('nfci_z'),0.9),_sigmoid01(-fb,0.9)]),0,1))
+    tactical_event=float(np.clip(np.mean([_sigmoid01(fb,0.75),r5,b5,_sigmoid01(-get('hy_oas_chg5_z'),0.85),_sigmoid01(-get('vix_chg5_z'),0.85),_sigmoid01(-get('dxy_chg5_z'),0.85)]),0,1))
+    alignment=float(np.clip(1-abs(slow20-slow60),0,1))
+    persistence=float(np.clip(0.30*abs(strategic-0.5)*2+0.25*abs(tactical-0.5)*2+0.20*alignment+0.25*max(b20-0.5,0),0,1))
     if defensive>=0.72:
         state='DEFENSIVE_STRESS'
-    elif tactical>=0.64 and tactical_event>=0.60 and breadth5>=0.50 and strategic>=0.45 and defensive<0.62:
-        state='TACTICAL_RISK_ON_WITH_TIGHTENING' if tight>=0.60 else 'TACTICAL_RISK_ON'
-    elif strategic>=0.62 and tactical>=0.62 and breadth20>=0.55 and defensive<0.62:
-        state='RISK_ON_WITH_TIGHTENING' if tight>=0.60 else 'RISK_APPETITE_EXPANSION'
-    elif tight>=0.65 and strategic<0.58 and tactical<0.60:
+    elif tactical>=0.57 and tactical_event>=0.60 and b5>=0.50 and strategic>=0.45 and defensive<0.62:
+        state='TACTICAL_RISK_ON_WITH_TIGHTENING' if tightening>=0.60 else 'TACTICAL_RISK_ON'
+    elif strategic>=0.62 and tactical>=0.60 and b20>=0.50 and defensive<0.62:
+        state='RISK_ON_WITH_TIGHTENING' if tightening>=0.60 else 'RISK_APPETITE_EXPANSION'
+    elif tightening>=0.65 and strategic<0.58 and tactical<0.60:
         state='TIGHTENING'
     else:
         state='BALANCED'
-    base_budget=0.12+0.72*ra
-    breadth_bonus=0.08*(breadth20-0.50)
-    rotation_bonus=0.10*(rotation20-0.50)
-    tightening_penalty=0.22*max(tight-0.50,0.0)
-    stress_penalty=0.45*max(defensive-0.25,0.0)
-    budget=float(np.clip(base_budget+breadth_bonus+rotation_bonus-tightening_penalty-stress_penalty,0.10,0.90))
-    cash=float(np.clip(100.0*(1.0-budget),10.0,90.0))
-    conf=float(np.clip(0.40+0.25*persistence+0.20*abs(strategic-defensive)+0.15*abs(tactical-defensive),0.0,1.0))
-    return {
-        'state':state,'risk_appetite_score':ra,'strategic_risk_score':strategic,'tactical_risk_score':tactical,
-        'tactical_risk_on_event_score':tactical_event,'tightening_score':tight,'tightening_score_20':tight20,'tightening_score_60':tight60,
-        'defensive_stress_score':defensive,'persistence_score':persistence,'alignment_score':alignment,
-        'slow_risk_appetite_20':slow20,'slow_risk_appetite_60':slow60,'fast_risk_appetite':fast_ra,
-        'risk_asset_breadth_5':breadth5,'risk_asset_breadth_20':breadth20,'risk_asset_breadth_60':breadth60,
-        'risk_rotation_5':rotation5,'risk_rotation_20':rotation20,'risk_rotation_60':rotation60,
-        'gold_relative_weakness_5':get('gold_relative_weakness_5_z'),'gold_relative_weakness_20':get('gold_relative_weakness_20_z'),'gold_relative_weakness_60':get('gold_relative_weakness_60_z'),
-        'portfolio_risk_budget':budget,'cash_target_pct':cash,'confidence':conf,
-        'risk_on_streak_days':int(get('structural_risk_on_streak_days',0)),'tightening_streak_days':int(get('structural_tightening_streak_days',0)),'defensive_streak_days':int(get('structural_defensive_streak_days',0)),
-    }
-
+    budget=float(np.clip(0.15+0.72*ra+0.05*(b5-0.5)+0.07*(b20-0.5)+0.12*(r20-0.5)+0.08*(tactical-0.5)-0.18*max(tightening-0.5,0)-0.35*max(defensive-0.25,0),0.10,0.90))
+    cash=float(np.clip(100*(1-budget),10,90))
+    confidence=float(np.clip(0.40+0.25*persistence+0.20*abs(strategic-defensive)+0.15*abs(tactical-defensive),0,1))
+    return {'state':state,'risk_appetite_score':ra,'strategic_risk_score':strategic,'tactical_risk_score':tactical,'tactical_risk_on_event_score':tactical_event,'tightening_score':tightening,'tightening_score_20':tight20,'tightening_score_60':tight60,'defensive_stress_score':defensive,'persistence_score':persistence,'alignment_score':alignment,'slow_risk_appetite_20':slow20,'slow_risk_appetite_60':slow60,'fast_risk_appetite':fast,'risk_asset_breadth_5':b5,'risk_asset_breadth_20':b20,'risk_asset_breadth_60':b60,'risk_rotation_5':r5,'risk_rotation_20':r20,'risk_rotation_60':r60,'gold_relative_weakness_5':get('gold_relative_weakness_5_z'),'gold_relative_weakness_20':get('gold_relative_weakness_20_z'),'gold_relative_weakness_60':get('gold_relative_weakness_60_z'),'portfolio_risk_budget':budget,'cash_target_pct':cash,'confidence':confidence,'risk_on_streak_days':int(get('structural_risk_on_streak_days',0)),'tightening_streak_days':int(get('structural_tightening_streak_days',0)),'defensive_streak_days':int(get('structural_defensive_streak_days',0))}
 
 def compute_effective_macro_asset_multiplier(asset_name: str, deterministic_multiplier: float, structural_state: Dict[str, Any]) -> float:
     """Blend deterministic macro exposure with independent portfolio risk appetite."""
@@ -278,20 +367,15 @@ def compute_portfolio_asset_tilt(asset_name: str, structural_state: Dict[str, An
     return 1.0
 
 
-def compute_target_portfolio_weights(confirmed_regime_id: int, subtype: str, structural_state: Dict[str, Any]) -> Dict[str, float]:
-    """Produce an explicit 8-asset + cash target allocation summing to 100%."""
-    base={a:1/8 for a in ["Altın (XAU)","Gümüş (XAG)","Ham Petrol (WTI)","Bakır (HG)","S&P 500 (SPX)","Nasdaq 100 (NQ)","Kripto (BTC)","ABD Tahvili / Faiz (TLT)"]}
-    det_mult=get_macro_interpretation_asset_multipliers(confirmed_regime_id,subtype)
-    scores={}
+def compute_target_portfolio_weights(confirmed_regime_id: int, subtype: str, structural_state: Dict[str, Any], asset_signal_scores: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+    """Produce an explicit 8-asset + cash target allocation using current asset signal scores when available."""
+    assets=["Altın (XAU)","Gümüş (XAG)","Ham Petrol (WTI)","Bakır (HG)","S&P 500 (SPX)","Nasdaq 100 (NQ)","Kripto (BTC)","ABD Tahvili / Faiz (TLT)"]
+    base={a:1/8 for a in assets}; det_mult=get_macro_interpretation_asset_multipliers(confirmed_regime_id,subtype); scores={}; asset_signal_scores=asset_signal_scores or {}
     for asset,bw in base.items():
-        scores[asset]=bw*compute_effective_macro_asset_multiplier(asset,det_mult.get(asset,1.0),structural_state)*compute_portfolio_asset_tilt(asset,structural_state)
-    total=sum(scores.values()) or 1.0
-    budget=float(np.clip(structural_state.get('portfolio_risk_budget',0.50),0.10,0.90))
-    invested=budget; cash=1.0-invested
-    out={a:float(invested*scores[a]/total*100.0) for a in scores}
-    out['Nakit / Likit Rezerv']=float(cash*100.0)
-    out['Nakit / Likit Rezerv'] += 100.0-sum(out.values())
-    return out
+        signal=float(np.clip(asset_signal_scores.get(asset,0.0),-100,100)); sf=float(np.clip(0.35+1.15*((signal+100)/200),0.35,1.50))
+        scores[asset]=bw*compute_effective_macro_asset_multiplier(asset,det_mult.get(asset,1.0),structural_state)*compute_portfolio_asset_tilt(asset,structural_state)*sf
+    total=sum(scores.values()) or 1.0; budget=float(np.clip(structural_state.get('portfolio_risk_budget',0.50),0.10,0.90)); invested=budget; cash=1-invested
+    out={a:float(invested*scores[a]/total*100) for a in scores}; out['Nakit / Likit Rezerv']=float(cash*100); out['Nakit / Likit Rezerv']+=100-sum(out.values()); return out
 
 
 def compute_net_liquidity(walcl: Any, tga: Any, rrp: Any) -> pd.Series:
@@ -1201,6 +1285,64 @@ class MacroEventInterpretationSystem:
             result_df[f'structural_{key}']=[rec.get(key,0.0) for rec in structural_records]
 
         return result_df
+
+
+def compute_asset_market_confirmation(price_series: Any) -> Dict[str, float]:
+    """Cross-horizon market confirmation; used as confirmation, not as a standalone trading rule."""
+    s=_coerce_series(price_series)
+    if len(s)<30:
+        return {"ret5_z":0.0,"ret20_z":0.0,"ret60_z":0.0,"trend_score":0.0,"high_proximity":0.0,"data_points":int(len(s))}
+    def rz(x):
+        z=calc_rolling_zscore(x,252,60)
+        return _safe_float(z.iloc[-1])
+    r5=rz(s.pct_change(5,fill_method=None)); r20=rz(s.pct_change(20,fill_method=None)); r60=rz(s.pct_change(60,fill_method=None)) if len(s)>=90 else 0.0
+    trend=float(np.tanh((0.30*r5+0.45*r20+0.25*r60)/1.10))
+    high=float(s.tail(min(len(s),252)).max()); cur=float(s.iloc[-1]); dd=cur/high-1.0 if high>0 else 0.0
+    proximity=float(np.clip(1.0+5.0*dd,-1.0,1.0))
+    return {"ret5_z":float(r5),"ret20_z":float(r20),"ret60_z":float(r60),"trend_score":trend,"high_proximity":proximity,"data_points":int(len(s))}
+
+
+def get_asset_signal_label(score: float, confidence: float=0.5) -> str:
+    s=float(score); c=float(np.clip(confidence,0,1))
+    if s>=60 and c>=0.55: return "GÜÇLÜ AL"
+    if s>=27: return "AL"
+    if s<=-60 and c>=0.55: return "GÜÇLÜ SAT / KORUMA"
+    if s<=-27: return "AZALT / KORUMA"
+    return "NÖTR"
+
+
+def compute_asset_signal_state(asset_name: str, factor_scores: Dict[str,float], factor_weights: Dict[str,float], price_series: Any, structural_state: Dict[str,Any], confirmed_regime_id: int=0, deterministic_multiplier: float=1.0) -> Dict[str,Any]:
+    """Asset-aware signal combining macro sensitivity, cross-horizon tape confirmation and risk-cycle state."""
+    polarity=ASSET_SIGNAL_POLARITY.get(asset_name,{})
+    contributions={}; macro_raw=0.0
+    for ind,w in factor_weights.items():
+        z=_safe_float(factor_scores.get(ind,0.0)); sign=float(polarity.get(ind,0.0)); c=z*float(w)*sign; contributions[ind]=float(c); macro_raw+=c
+    macro_component=float(np.tanh(macro_raw/0.18))
+    market=compute_asset_market_confirmation(price_series)
+    market_component=float(np.clip(0.70*market["trend_score"]+0.30*market["high_proximity"],-1,1))
+    strategic=float(np.clip(structural_state.get('strategic_risk_score',0.5),0,1)); tactical=float(np.clip(structural_state.get('tactical_risk_score',0.5),0,1)); rotation=float(np.clip(structural_state.get('risk_rotation_20',0.5),0,1)); tight=float(np.clip(structural_state.get('tightening_score',0.5),0,1)); stress=float(np.clip(structural_state.get('defensive_stress_score',0.5),0,1))
+    if asset_name in PORTFOLIO_HIGH_BETA_ASSETS:
+        structure=0.45*(tactical-0.5)*2+0.25*(strategic-0.5)*2+0.20*(rotation-0.5)*2-0.10*(tight-0.5)*2-0.20*(stress-0.25)
+    elif asset_name=='Altın (XAU)':
+        structure=-0.45*(tactical-0.5)*2-0.30*(rotation-0.5)*2+0.25*(stress-0.25)*2+0.10*(tight-0.5)*2
+    elif asset_name=='ABD Tahvili / Faiz (TLT)':
+        structure=-0.30*(tactical-0.5)*2+0.40*(stress-0.25)*2-0.30*(tight-0.5)*2
+    else: structure=0.0
+    structure=float(np.clip(structure,-1,1))
+    regime_context=float(np.clip((float(deterministic_multiplier)-1.0)/0.50,-1,1))
+    if asset_name == "Altın (XAU)":
+        macro_w, market_w, structure_w, regime_w = 0.30, 0.50, 0.15, 0.05
+    elif asset_name == "Gümüş (XAG)":
+        macro_w, market_w, structure_w, regime_w = 0.32, 0.48, 0.15, 0.05
+    elif asset_name in {"Nasdaq 100 (NQ)", "S&P 500 (SPX)", "Kripto (BTC)"}:
+        macro_w, market_w, structure_w, regime_w = 0.40, 0.35, 0.20, 0.05
+    elif asset_name in {"Ham Petrol (WTI)", "Bakır (HG)"}:
+        macro_w, market_w, structure_w, regime_w = 0.42, 0.38, 0.15, 0.05
+    else:
+        macro_w, market_w, structure_w, regime_w = 0.32, 0.45, 0.18, 0.05
+    score=float(np.clip(100*(macro_w*macro_component+market_w*market_component+structure_w*structure+regime_w*regime_context),-100,100))
+    confidence=float(np.clip(0.35+0.20*min(1,market["data_points"]/504)+0.20*abs(macro_component)+0.15*abs(market_component)+0.10*structural_state.get('confidence',0.5),0,1))
+    return {"asset":asset_name,"score":score,"label":get_asset_signal_label(score,confidence),"confidence":confidence,"macro_component":macro_component,"macro_raw":float(macro_raw),"market_component":market_component,"structure_component":structure,"deterministic_multiplier":float(deterministic_multiplier),"factor_contributions":contributions,"market":market,"regime_id":int(confirmed_regime_id)}
 
 
 def get_macro_interpretation_asset_multipliers(confirmed_regime_id: int, subtype: str = "") -> Dict[str, float]:
