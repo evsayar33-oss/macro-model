@@ -62,6 +62,10 @@ jobs:
               compute_continuum_regime_state,
               compute_circuit_breaker,
               compute_structural_risk_state,
+              compute_portfolio_asset_tilt,
+              compute_target_portfolio_weights,
+              compute_effective_macro_asset_multiplier,
+              compute_net_liquidity,
               assess_data_freshness,
               get_macro_interpretation_asset_multipliers,
               normalize_macro_input,
@@ -158,10 +162,7 @@ jobs:
               return pd.Series(dtype=float)
 
           def compute_global_net_liquidity(walcl, tga, rrp) -> pd.Series:
-              df = pd.concat([walcl, tga, rrp], axis=1).sort_index().ffill().dropna()
-              if df.empty:
-                  return pd.Series(dtype=float)
-              return (df.iloc[:, 0] - df.iloc[:, 1] + df.iloc[:, 2] * 1000.0).dropna()
+              return compute_net_liquidity(walcl, tga, rrp)
 
           def data_fingerprint(normalized_input: dict) -> str:
               latest = {}
@@ -206,6 +207,7 @@ jobs:
               "oil": "CL=F", "bdi": "BDRY", "dxy": "DX-Y.NYB", "usdjpy": "JPY=X",
               "vix": "^VIX", "move": "^MOVE", "btc": "BTC-USD", "spx": "SPY",
               "gold": "GC=F", "xag": "SI=F", "hg": "HG=F", "dbb": "DBB", "eurusd": "EURUSD=X",
+              "bank_equity": "XLF", "small_caps": "IWM",
           }
           yf_data = {key: fetch_yf(value) for key, value in yf_ids.items()}
 
@@ -227,6 +229,7 @@ jobs:
               "btc": yf_data["btc"], "dfii10": fred_data["dfii10"], "t10yie": fred_data["t10yie"],
               "ndl": ndl, "gold": yf_data["gold"], "xag": yf_data["xag"], "hg": yf_data["hg"],
               "dbb": yf_data["dbb"], "nfci": fred_data["nfci"], "icsa": fred_data["icsa"],
+              "bank_equity": yf_data["bank_equity"], "small_caps": yf_data["small_caps"],
           }
 
           contract_report = validate_macro_input(macro_input, require_critical=False)
@@ -322,18 +325,21 @@ jobs:
               mapped_continuum = CONTINUUM_REGIME_MAP.get(final_id)
               continuum_agrees = True if mapped_continuum is None else continuum_dominant == mapped_continuum
 
-          # 4) Asset-allocation snapshot: macro indicator weights + regime multipliers.
-          asset_snapshot = {}
+          # 4) Explicit portfolio allocation: macro regime, risk appetite and cash are separate.
           active_multipliers = get_macro_interpretation_asset_multipliers(final_id, subtype)
+          target_portfolio_weights = compute_target_portfolio_weights(final_id, subtype, structural)
+          asset_snapshot = {}
           for asset in ASSETS:
-              indicator_weights = get_dynamic_asset_weights(
-                  asset,
-                  final_id,
-                  continuum_probs,
-                  in_transition=in_transition,
-              )
+              indicator_weights = get_dynamic_asset_weights(asset, final_id, continuum_probs, in_transition=in_transition)
+              raw_macro_mult=float(active_multipliers.get(asset, 1.0))
               asset_snapshot[asset] = {
-                  "macro_exposure_multiplier": float(active_multipliers.get(asset, 1.0)),
+                  "macro_exposure_multiplier_raw": raw_macro_mult,
+                  "macro_exposure_multiplier_effective": float(compute_effective_macro_asset_multiplier(asset, raw_macro_mult, structural)),
+                  "structural_asset_tilt": float(compute_portfolio_asset_tilt(asset, structural)),
+                  "target_portfolio_weight_pct": float(target_portfolio_weights.get(asset, 0.0)),
+                  "structural_state": structural.get("state"),
+                  "portfolio_risk_budget_pct": float(structural.get("portfolio_risk_budget", 0.50) * 100.0),
+                  "cash_target_pct": float(structural.get("cash_target_pct", 50.0)),
                   "indicator_weights": {name: float(indicator_weights.get(name, 0.0)) for name in INDICATORS},
               }
 
@@ -361,6 +367,7 @@ jobs:
               "structural_state": structural,
               "portfolio_risk_budget_pct": float(structural.get("portfolio_risk_budget", 0.50) * 100.0),
               "cash_target_pct": float(structural.get("cash_target_pct", 50.0)),
+              "target_portfolio_weights_pct": target_portfolio_weights,
               "data_fingerprint": fingerprint,
               "data_freshness": freshness,
               "circuit_breaker_triggered": bool(circuit_triggered),
@@ -391,15 +398,23 @@ jobs:
               history = []
 
           previous_fingerprint = previous_current.get("data_fingerprint")
+          previous_structural = previous_current.get("structural_state", {}) if isinstance(previous_current, dict) else {}
+          material_structural_change = (
+              previous_confirmed is None
+              or abs(float(structural.get("risk_appetite_score",0.50)) - float(previous_structural.get("risk_appetite_score",0.50))) >= 0.07
+              or abs(float(structural.get("tightening_score",0.50)) - float(previous_structural.get("tightening_score",0.50))) >= 0.07
+              or abs(float(structural.get("cash_target_pct",50.0)) - float(previous_current.get("cash_target_pct",50.0))) >= 5.0
+              or abs(float(structural.get("risk_rotation_20",0.50)) - float(previous_structural.get("risk_rotation_20",0.50))) >= 0.10
+          )
           should_persist = (
               previous_confirmed is None
               or previous_circuit is None
-              or previous_fingerprint != fingerprint
               or today_utc != str(previous_current.get("observation_date_utc", ""))
               or final_id != int(previous_confirmed)
               or candidate_id != (None if previous_candidate is None else int(previous_candidate))
               or bool(circuit_triggered) != bool(previous_circuit)
-              or structural.get("state") != previous_current.get("structural_state", {}).get("state")
+              or structural.get("state") != previous_structural.get("state")
+              or material_structural_change
           )
 
           if should_persist:
@@ -430,9 +445,14 @@ jobs:
                   "schedule": "Every 2 hours (UTC); persisted whenever source data changes, structural state changes, circuit state changes, or at least daily",
                   "architecture": [
                       "scheduled_fresh_data_fetch_with_retries",
+                      "intraday_evaluation_without_commit_spam",
+                      "source_data_freshness_guard",
                       "source_freshness_validation",
                       "canonical_contract_normalization",
                       "normalized_event_features",
+                      "multi_horizon_risk_appetite_and_cross_asset_rotation",
+                      "bank_and_small_cap_participation_confirmation",
+                      "explicit_target_portfolio_weights",
                       "deterministic_event_engine",
                       "continuum_regime_engine",
                       "hysteresis_and_extreme_event_confirmation",
