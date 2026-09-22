@@ -1,5 +1,5 @@
 """
-🏛️ Macro Event Interpretation System v1.0
+🏛️ Macro Event Interpretation System v1.2
 Module: macro-event-interpretation-system
 Specification:
   - Principles:
@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Tuple, Any
 # ============================================================================
 # SHARED MACRO EVENT INPUT CONTRACT
 # ============================================================================
-MACRO_EVENT_INPUT_SCHEMA_VERSION = "1.1"
+MACRO_EVENT_INPUT_SCHEMA_VERSION = "1.2"
 MACRO_INPUT_KEYS = (
     "oil", "bdi", "hy_oas", "ig_oas", "spx", "ust10y", "ust2y",
     "dtwex", "dxy", "usdjpy", "vix", "move", "btc", "dfii10",
@@ -50,6 +50,29 @@ CONTINUUM_REGIME_MAP = {
     4: "DEFLASYON",
     5: None,
 }
+
+# Expected publication/update cadence. These are freshness guards, not signal
+# thresholds. A weekly macro series can be valid while being several calendar
+# days older than a daily market price.
+EXPECTED_MAX_AGE_BUSINESS_DAYS = {
+    "oil": 3, "bdi": 5, "hy_oas": 7, "ig_oas": 7, "spx": 3,
+    "ust10y": 7, "ust2y": 7, "dtwex": 7, "dxy": 3, "usdjpy": 3,
+    "vix": 3, "move": 3, "btc": 3, "dfii10": 7, "t10yie": 7,
+    "ndl": 10, "gold": 3, "xag": 3, "hg": 3, "dbb": 3,
+    "nfci": 10, "icsa": 10,
+}
+
+RISK_APPETITE_ASSETS = {
+    "S&P 500 (SPX)", "Nasdaq 100 (NQ)", "Kripto (BTC)",
+    "Gümüş (XAG)", "Bakır (HG)", "Ham Petrol (WTI)",
+}
+
+def _business_day_age(latest: pd.Timestamp, as_of: pd.Timestamp) -> int:
+    latest_d = pd.Timestamp(latest).date()
+    asof_d = pd.Timestamp(as_of).date()
+    if latest_d >= asof_d:
+        return 0
+    return int(np.busday_count(latest_d, asof_d))
 
 def _coerce_series(value: Any) -> pd.Series:
     """Convert one canonical contract value into a clean numeric time series."""
@@ -111,6 +134,132 @@ def normalize_macro_input(data: Dict[str, Any], strict: bool = False) -> Dict[st
     if not isinstance(data, dict):
         raise TypeError("macro input must be a dict keyed by MACRO_INPUT_KEYS")
     return {key: _coerce_series(data.get(key)) for key in MACRO_INPUT_KEYS}
+
+def assess_data_freshness(data: Dict[str, Any], as_of: Optional[pd.Timestamp] = None) -> Dict[str, Any]:
+    """Return per-series freshness without declaring valid low-frequency data invalid."""
+    as_of = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.utcnow().tz_localize(None)
+    normalized = {k: _coerce_series(data.get(k)) for k in MACRO_INPUT_KEYS}
+    report = {}
+    stale_keys = []
+    missing_keys = []
+    for key in MACRO_INPUT_KEYS:
+        s = normalized[key]
+        if s.empty:
+            report[key] = {
+                "status": "MISSING", "latest": None, "age_business_days": None,
+                "max_age_business_days": EXPECTED_MAX_AGE_BUSINESS_DAYS.get(key, 7),
+            }
+            missing_keys.append(key)
+            continue
+        latest = pd.Timestamp(s.index[-1])
+        age = _business_day_age(latest, as_of)
+        max_age = EXPECTED_MAX_AGE_BUSINESS_DAYS.get(key, 7)
+        status = "FRESH" if age <= max_age else "STALE"
+        if status == "STALE":
+            stale_keys.append(key)
+        report[key] = {
+            "status": status,
+            "latest": latest.isoformat(),
+            "age_business_days": age,
+            "max_age_business_days": max_age,
+        }
+    return {
+        "as_of": as_of.isoformat(),
+        "series": report,
+        "missing_keys": missing_keys,
+        "stale_keys": stale_keys,
+        "fresh_count": sum(v["status"] == "FRESH" for v in report.values()),
+        "stale_count": len(stale_keys),
+        "missing_count": len(missing_keys),
+    }
+
+def compute_structural_risk_state(row: Optional[pd.Series]) -> Dict[str, Any]:
+    """
+    Slow macro state used for portfolio risk budgeting.
+
+    This is deliberately multi-horizon: it combines 20- and 60-session
+    risk-appetite/tightening impulses, so a long risk-on or tightening cycle
+    is not overwritten by a single noisy daily observation.
+    """
+    if row is None or len(row) == 0:
+        return {
+            "state": "BALANCED", "risk_appetite_score": 0.50,
+            "tightening_score": 0.50, "defensive_stress_score": 0.50,
+            "persistence_score": 0.00, "portfolio_risk_budget": 0.50,
+            "cash_target_pct": 50.0, "confidence": 0.0,
+        }
+
+    get = lambda key, default=0.0: _safe_float(row.get(key, default), default)
+    # Risk appetite: higher is more tolerant of equities/crypto/high-beta assets.
+    fast_ra = np.mean([
+        _sigmoid01(get("basket_ret5d_z"), 1.0),
+        _sigmoid01(-get("hy_oas_z"), 1.0),
+        _sigmoid01(-get("vix_level_z"), 1.0),
+        _sigmoid01(get("ndl_z"), 1.0),
+        _sigmoid01(-get("dxy_chg5_z"), 1.0),
+    ])
+    slow_ra_20 = np.mean([
+        _sigmoid01(get("basket_ret20d_z"), 1.0),
+        _sigmoid01(-get("hy_oas_chg20_z"), 1.0),
+        _sigmoid01(-get("vix_chg20_z"), 1.0),
+        _sigmoid01(get("ndl_chg20_z"), 1.0),
+        _sigmoid01(-get("dxy_chg20_z"), 1.0),
+    ])
+    slow_ra_60 = np.mean([
+        _sigmoid01(get("basket_ret60d_z"), 1.0),
+        _sigmoid01(-get("hy_oas_chg60_z"), 1.0),
+        _sigmoid01(-get("vix_chg60_z"), 1.0),
+        _sigmoid01(get("ndl_chg60_z"), 1.0),
+        _sigmoid01(-get("dxy_chg60_z"), 1.0),
+    ])
+    risk_appetite = float(np.clip(0.20 * fast_ra + 0.35 * slow_ra_20 + 0.45 * slow_ra_60, 0.0, 1.0))
+
+    tightening = float(np.clip(np.mean([
+        _sigmoid01(get("dfii10_chg20_z"), 1.0),
+        _sigmoid01(get("dxy_chg20_z"), 1.0),
+        _sigmoid01(get("hy_oas_chg20_z"), 1.0),
+        _sigmoid01(-get("ndl_chg20_z"), 1.0),
+        _sigmoid01(-get("basket_ret20d_z"), 1.0),
+    ]), 0.0, 1.0))
+
+    defensive_stress = float(np.clip(np.mean([
+        _sigmoid01(get("hy_oas_z"), 0.9),
+        _sigmoid01(get("vix_level_z"), 0.9),
+        _sigmoid01(get("move_pctl252") - 70.0, 18.0),
+        _sigmoid01(get("nfci_z"), 0.9),
+        _sigmoid01(-get("basket_ret5d_z"), 0.9),
+    ]), 0.0, 1.0))
+
+    persistence = float(np.clip(abs(slow_ra_60 - 0.50) * 2.0, 0.0, 1.0))
+    if defensive_stress >= 0.72 or tightening >= 0.70:
+        state = "DEFENSIVE_STRESS" if defensive_stress >= 0.72 else "TIGHTENING"
+    elif risk_appetite >= 0.66 and slow_ra_20 >= 0.58 and slow_ra_60 >= 0.56:
+        state = "RISK_APPETITE_EXPANSION"
+    else:
+        state = "BALANCED"
+
+    # Risk budget is intentionally bounded; this is a portfolio-risk control,
+    # not an all-in/all-out trading signal.
+    risk_budget = float(np.clip(
+        0.25 + 0.65 * risk_appetite - 0.55 * tightening - 0.35 * defensive_stress,
+        0.10, 0.90
+    ))
+    cash_target = float(np.clip(100.0 - 100.0 * risk_budget, 10.0, 90.0))
+    confidence = float(np.clip(0.50 + 0.50 * max(persistence, abs(risk_appetite - tightening)), 0.0, 1.0))
+
+    return {
+        "state": state,
+        "risk_appetite_score": risk_appetite,
+        "tightening_score": tightening,
+        "defensive_stress_score": defensive_stress,
+        "persistence_score": persistence,
+        "slow_risk_appetite_20": float(slow_ra_20),
+        "slow_risk_appetite_60": float(slow_ra_60),
+        "fast_risk_appetite": float(fast_ra),
+        "portfolio_risk_budget": risk_budget,
+        "cash_target_pct": cash_target,
+        "confidence": confidence,
+    }
 
 def compute_circuit_breaker(series_map: Dict[str, Any]) -> Tuple[bool, List[str]]:
     """Shared systemic-risk circuit breaker for UI and automation."""
@@ -308,6 +457,11 @@ def compute_continuum_regime_state(
         0.0, 1.0
     ))
 
+    structural = compute_structural_risk_state(row)
+    structural_risk = structural['risk_appetite_score']
+    structural_tightening = structural['tightening_score']
+    structural_stress = structural['defensive_stress_score']
+
     # Regime logits: these encode relationships, not hard boundaries.
     logits = {
         'GOLDILOCKS': (
@@ -317,6 +471,8 @@ def compute_continuum_regime_state(
             - 0.90 * inflation
             - 0.65 * commodity
             - 0.55 * real_rate
+            + 0.55 * structural_risk
+            - 0.40 * structural_tightening
         ),
         'REFLASYON': (
             1.30 * commodity
@@ -325,6 +481,8 @@ def compute_continuum_regime_state(
             + 0.45 * growth
             - 0.85 * systemic_stress
             - 0.35 * real_rate
+            + 0.35 * structural_risk
+            - 0.20 * structural_tightening
         ),
         'STAGFLASYON': (
             1.55 * commodity
@@ -334,6 +492,9 @@ def compute_continuum_regime_state(
             + 0.35 * dollar_pressure
             - 0.90 * growth
             - 0.45 * liquidity
+            - 0.35 * structural_risk
+            + 0.55 * structural_tightening
+            + 0.30 * structural_stress
         ),
         'DEFLASYON': (
             1.65 * systemic_stress
@@ -343,6 +504,9 @@ def compute_continuum_regime_state(
             - 1.05 * inflation
             - 0.80 * commodity
             - 0.75 * growth
+            - 0.20 * structural_risk
+            + 0.65 * structural_tightening
+            + 0.45 * structural_stress
         ),
     }
 
@@ -407,7 +571,9 @@ def compute_continuum_regime_state(
         'STAGFLASYON': 1.35,
         'DEFLASYON': 0.82,
     }
-    blended_multiplier = float(sum(probs[k] * base_multipliers[k] for k in base_multipliers))
+    base_blended_multiplier = float(sum(probs[k] * base_multipliers[k] for k in base_multipliers))
+    structural_multiplier = float(np.clip(0.78 + 0.42 * structural_risk - 0.30 * structural_tightening - 0.16 * structural_stress, 0.62, 1.16))
+    blended_multiplier = float(np.clip(base_blended_multiplier * structural_multiplier, 0.60, 1.25))
     inf_anchor = get('t10yie_level', 0.0)
     title_map = {
         'GOLDILOCKS': f'GOLDILOCKS (%{dom_pct} - Büyüme/Likidite Dengesi)',
@@ -422,6 +588,7 @@ def compute_continuum_regime_state(
         'blended_multiplier': blended_multiplier,
         'inflation_anchor': inf_anchor,
         'regime_probs': probs,
+        'structural_state': structural,
         'diagnostics': {
             'inflation_pressure': inflation,
             'commodity_pressure': commodity,
@@ -432,6 +599,11 @@ def compute_continuum_regime_state(
             'commodity_event_z': commodity_event,
             'real_rate_event_z': real_rate_event,
             'stress_event_z': stress_event,
+            'structural_risk_appetite_20_z': get('structural_risk_appetite_20_z'),
+            'structural_risk_appetite_60_z': get('structural_risk_appetite_60_z'),
+            'structural_tightening_20_z': get('structural_tightening_20_z'),
+            'structural_tightening_60_z': get('structural_tightening_60_z'),
+            'structural_state': structural['state'],
         },
     }
 
@@ -606,7 +778,64 @@ class MacroEventInterpretationSystem:
             features['gold_ret20'] = df['gold'].pct_change(20)
         else:
             features['gold_ret20'] = 0.0
-            
+
+        # 6. Multi-horizon structural change layer. These features catch
+        # persistent regime moves that a one-day event Z-score can miss.
+        horizon_defs = ((20, '20'), (60, '60'))
+        for horizon, suffix in horizon_defs:
+            if 'oil' in df:
+                features[f'oil_ret{suffix}_z'] = calc_rolling_zscore(df['oil'].pct_change(horizon), cfg.rolling_window_52w, cfg.min_periods_52w)
+            else:
+                features[f'oil_ret{suffix}_z'] = 0.0
+            for key in ('dfii10', 'dxy', 'hy_oas', 'ndl', 'vix'):
+                if key in df:
+                    features[f'{key}_chg{suffix}_z'] = calc_rolling_zscore(df[key].diff(horizon), cfg.rolling_window_52w, cfg.min_periods_52w)
+                else:
+                    features[f'{key}_chg{suffix}_z'] = 0.0
+            if 'spx' in df and 'btc' in df:
+                basket_ret = 0.5 * df['spx'].pct_change(horizon) + 0.5 * df['btc'].pct_change(horizon)
+            elif 'spx' in df:
+                basket_ret = df['spx'].pct_change(horizon)
+            else:
+                basket_ret = pd.Series(0.0, index=df.index)
+            features[f'basket_ret{suffix}d_z'] = calc_rolling_zscore(basket_ret, cfg.rolling_window_52w, cfg.min_periods_52w)
+
+        long_commodity_zs = []
+        for commodity_key in ('oil', 'gold', 'xag', 'hg', 'dbb'):
+            if commodity_key in df:
+                z60 = calc_rolling_zscore(df[commodity_key].pct_change(60), cfg.rolling_window_52w, cfg.min_periods_52w)
+                features[f'{commodity_key}_ret60_z'] = z60
+                long_commodity_zs.append(z60)
+            else:
+                features[f'{commodity_key}_ret60_z'] = 0.0
+        if long_commodity_zs:
+            long_frame = pd.concat(long_commodity_zs, axis=1)
+            features['commodity_impulse_60d_z'] = long_frame.mean(axis=1, skipna=True).fillna(0.0)
+        else:
+            features['commodity_impulse_60d_z'] = 0.0
+
+        # A slow composite used only for structural portfolio budgeting.
+        structural_ra_raw = (
+            0.25 * features['basket_ret20d_z']
+            - 0.20 * features['hy_oas_chg20_z']
+            - 0.15 * features['vix_chg20_z']
+            + 0.20 * features['ndl_chg20_z']
+            - 0.10 * features['dxy_chg20_z']
+            - 0.10 * features['dfii10_chg20_z']
+        )
+        structural_ra_long = (
+            0.25 * features['basket_ret60d_z']
+            - 0.20 * features['hy_oas_chg60_z']
+            - 0.15 * features['vix_chg60_z']
+            + 0.20 * features['ndl_chg60_z']
+            - 0.10 * features['dxy_chg60_z']
+            - 0.10 * features['dfii10_chg60_z']
+        )
+        features['structural_risk_appetite_20_z'] = structural_ra_raw
+        features['structural_risk_appetite_60_z'] = structural_ra_long
+        features['structural_tightening_20_z'] = -structural_ra_raw
+        features['structural_tightening_60_z'] = -structural_ra_long
+
         return features
 
     def evaluate_row(self, row: pd.Series) -> Dict[str, Any]:
@@ -909,6 +1138,8 @@ class MacroEventInterpretationSystem:
         confirmed_ids = np.zeros(n, dtype=int)
         subtypes = []
         conflict_notes = []
+        extreme_events = np.zeros(n, dtype=bool)
+        candidate_strengths = np.zeros(n, dtype=float)
         in_transition = np.zeros(n, dtype=bool)
         extreme_flags = []
         candidate_strengths = []
