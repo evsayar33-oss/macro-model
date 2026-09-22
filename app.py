@@ -9,31 +9,92 @@ from fredapi import Fred
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
-from macro_event_interpretation import (
-    MacroEventInterpretationSystem,
-    RegimeThresholdConfig,
-    get_macro_interpretation_asset_multipliers,
-    render_macro_scorecard_ui,
-    compute_continuum_regime_state,
-    compute_structural_risk_state,
-    compute_portfolio_asset_tilt,
-    assess_data_freshness,
-    compute_circuit_breaker,
-    compute_net_liquidity,
-    validate_macro_input,
-    compute_effective_macro_asset_multiplier,
-    compute_target_portfolio_weights,
-    normalize_macro_input,
-    MACRO_EVENT_INPUT_SCHEMA_VERSION
-)
-from asset_regime_weights import (
-    get_dynamic_asset_weights,
-    get_asset_regime_weight_matrix,
-    INDICATORS as ASSET_INDICATORS
+# --- ROBUST ENGINE LOADING ---
+# Import the modules as namespaces instead of importing many symbols directly.
+# This prevents a stale/mismatched deployment from failing at a single
+# `from module import (...)` statement and gives us an explicit API check.
+import importlib
+
+try:
+    import macro_event_interpretation as macro_engine
+    importlib.invalidate_caches()
+    macro_engine = importlib.reload(macro_engine)
+except Exception as exc:
+    st.error("❌ Macro engine yüklenemedi. Deployment içindeki macro_event_interpretation.py kontrol edilmeli.")
+    st.exception(exc)
+    st.stop()
+
+_REQUIRED_MACRO_API = (
+    "MacroEventInterpretationSystem",
+    "RegimeThresholdConfig",
+    "get_macro_interpretation_asset_multipliers",
+    "render_macro_scorecard_ui",
+    "compute_continuum_regime_state",
+    "compute_structural_risk_state",
+    "compute_portfolio_asset_tilt",
+    "assess_data_freshness",
+    "compute_circuit_breaker",
+    "compute_net_liquidity",
+    "validate_macro_input",
+    "compute_effective_macro_asset_multiplier",
+    "compute_target_portfolio_weights",
+    "normalize_macro_input",
+    "MACRO_EVENT_INPUT_SCHEMA_VERSION",
 )
 
+_missing_macro_api = [name for name in _REQUIRED_MACRO_API if not hasattr(macro_engine, name)]
+if _missing_macro_api:
+    st.error(
+        "❌ Macro engine API uyuşmazlığı. Eksik semboller: "
+        + ", ".join(_missing_macro_api)
+    )
+    st.stop()
+
+MacroEventInterpretationSystem = macro_engine.MacroEventInterpretationSystem
+RegimeThresholdConfig = macro_engine.RegimeThresholdConfig
+get_macro_interpretation_asset_multipliers = macro_engine.get_macro_interpretation_asset_multipliers
+render_macro_scorecard_ui = macro_engine.render_macro_scorecard_ui
+compute_continuum_regime_state = macro_engine.compute_continuum_regime_state
+compute_structural_risk_state = macro_engine.compute_structural_risk_state
+compute_portfolio_asset_tilt = macro_engine.compute_portfolio_asset_tilt
+assess_data_freshness = macro_engine.assess_data_freshness
+compute_circuit_breaker = macro_engine.compute_circuit_breaker
+compute_net_liquidity = macro_engine.compute_net_liquidity
+validate_macro_input = macro_engine.validate_macro_input
+compute_effective_macro_asset_multiplier = macro_engine.compute_effective_macro_asset_multiplier
+compute_target_portfolio_weights = macro_engine.compute_target_portfolio_weights
+normalize_macro_input = macro_engine.normalize_macro_input
+MACRO_EVENT_INPUT_SCHEMA_VERSION = macro_engine.MACRO_EVENT_INPUT_SCHEMA_VERSION
+
+try:
+    import asset_regime_weights as asset_engine
+    importlib.invalidate_caches()
+    asset_engine = importlib.reload(asset_engine)
+except Exception as exc:
+    st.error("❌ Asset weight engine yüklenemedi.")
+    st.exception(exc)
+    st.stop()
+
+_REQUIRED_ASSET_API = (
+    "get_dynamic_asset_weights",
+    "get_asset_regime_weight_matrix",
+    "INDICATORS",
+)
+
+_missing_asset_api = [name for name in _REQUIRED_ASSET_API if not hasattr(asset_engine, name)]
+if _missing_asset_api:
+    st.error(
+        "❌ Asset weight engine API uyuşmazlığı. Eksik semboller: "
+        + ", ".join(_missing_asset_api)
+    )
+    st.stop()
+
+get_dynamic_asset_weights = asset_engine.get_dynamic_asset_weights
+get_asset_regime_weight_matrix = asset_engine.get_asset_regime_weight_matrix
+ASSET_INDICATORS = asset_engine.INDICATORS
+
 # --- 1. SAYFA VE API AYARLARI ---
-st.set_page_config(page_title="Makro Trend v33.0 (Continuum Master Grade)", layout="wide")
+st.set_page_config(page_title="Makro Trend v2.2 (Continuum Master Grade)", layout="wide")
 
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
@@ -305,7 +366,8 @@ def process_indicator(data_series, indicator_name, invert=False):
 
 # --- 6. ARAYÜZ VE UYGULAMA ---
 st.title("🏛️ KÜRESEL MAKRO MODELİ & OLAY YORUMLAMA SİSTEMİ")
-st.markdown("**Makro Olay Yorumlama Sistemi v1.0 (Deterministik Şok & Risk Motoru) & Sürekli Portföy Karması (Continuum Master)**")
+st.caption(f"🧩 Macro Engine: {getattr(macro_engine, '__name__', 'macro_event_interpretation')} | Contract Schema: {MACRO_EVENT_INPUT_SCHEMA_VERSION} | API: ✅ UYUMLU")
+st.markdown("**Makro Olay Yorumlama Sistemi v2.2 (Deterministik Şok & Risk Motoru) & Sürekli Portföy Karması (Continuum Master)**")
 
 st.sidebar.header("VARLIK VE RİSK YÖNETİMİ")
 asset = st.sidebar.radio("Analiz Edilecek Varlık:", (
