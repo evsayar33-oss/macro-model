@@ -174,7 +174,7 @@ ASSET_REGIME_CONFIGS: Dict[str, Dict[str, Any]] = {
             0: {
                 "Dolar Endeksi Zayıflığı (DXY)": 0.18, "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.16,
                 "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.16, "10Y Breakeven Enflasyon İvmesi": 0.14,
-                "Öncü İstihdam (ICSA)": 0.10, "HY OAS": 0.08, "MOVE": 0.06,
+                "Öncü İstihdam (ICSA)": 0.10, "Yüksek Getirili Kredi Stresi (HY OAS)": 0.08, "MOVE Endeksi (Tahvil Volatilitesi)": 0.06,
                 "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.05, "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.03,
                 "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.02, "VIX Endeksi (Hisse Volatilitesi)": 0.01,
                 "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.01
@@ -375,9 +375,9 @@ ASSET_REGIME_CONFIGS: Dict[str, Dict[str, Any]] = {
             0: {
                 "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.24, "Dolar Endeksi Zayıflığı (DXY)": 0.20,
                 "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.16, "VIX Endeksi (Hisse Volatilitesi)": 0.14,
-                "HY OAS": 0.10, "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.08,
+                "Yüksek Getirili Kredi Stresi (HY OAS)": 0.10, "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.08,
                 "10Y Breakeven Enflasyon İvmesi": 0.03, "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.02,
-                "MOVE": 0.015, "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.005,
+                "MOVE Endeksi (Tahvil Volatilitesi)": 0.015, "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.005,
                 "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.005, "Öncü İstihdam (ICSA)": 0.005
             }
         }
@@ -576,7 +576,7 @@ ASSET_REGIME_CONFIGS: Dict[str, Dict[str, Any]] = {
             0: {
                 "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.22, "10Y Breakeven Enflasyon İvmesi": 0.18,
                 "MOVE Endeksi (Tahvil Volatilitesi)": 0.16, "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.16,
-                "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.12, "HY OAS": 0.08,
+                "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.12, "Yüksek Getirili Kredi Stresi (HY OAS)": 0.08,
                 "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.04, "Dolar Endeksi Zayıflığı (DXY)": 0.02,
                 "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.01, "VIX Endeksi (Hisse Volatilitesi)": 0.005,
                 "Öncü İstihdam (ICSA)": 0.003, "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.002
@@ -659,3 +659,35 @@ def get_asset_regime_weight_matrix(asset_name: str) -> pd.DataFrame:
         rows.append(row)
         
     return pd.DataFrame(rows)
+
+
+def validate_asset_weight_schema() -> Dict[str, Any]:
+    """Validate calibrated weight keys against the canonical indicator list.
+
+    Continuum schema: indicator -> continuum-regime -> weight.
+    Deterministic schema: deterministic-regime-id -> indicator -> weight.
+    Missing indicator keys are reported for transparency because the runtime
+    has a documented neutral fallback, but only unknown indicator keys make
+    the schema invalid.
+    """
+    indicator_set = set(INDICATORS)
+    unknown = {}
+    missing = {}
+
+    for asset, cfg in ASSET_REGIME_CONFIGS.items():
+        continuum = cfg.get("continuum", {}) or {}
+        bad = sorted(set(continuum) - indicator_set)
+        if bad:
+            unknown[f"{asset}:continuum"] = bad
+
+        deterministic = cfg.get("deterministic", {}) or {}
+        for regime_id, weights in deterministic.items():
+            weights = weights or {}
+            bad = sorted(set(weights) - indicator_set)
+            if bad:
+                unknown[f"{asset}:deterministic:{regime_id}"] = bad
+            miss = sorted(indicator_set - set(weights))
+            if miss:
+                missing[f"{asset}:deterministic:{regime_id}"] = miss
+
+    return {"valid": not unknown, "unknown_keys": unknown, "missing_keys": missing}

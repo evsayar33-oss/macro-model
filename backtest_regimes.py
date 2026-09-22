@@ -1,13 +1,13 @@
 """
 🏛️ Backtesting & Dynamic Threshold Optimization Engine
-Macro Event Interpretation System v1.0 & Continuum Master
+Macro Event Interpretation System v2.2 & Continuum Master
 
 Performs:
-  1. Multi-year macroeconomic historical simulation (2019-2026) across key market crisis phases.
+  1. Synthetic multi-year regime validation across manually parameterized crisis phases (not empirical market history).
   2. Strict validation of principles: mutual exclusivity, 52w rolling z-score normalization, hysteresis.
   3. Real Rate Shock (Regime 3) DXY dollar confirmation calibration and conflict resolution.
   4. Sensitivity analysis across threshold parameters to determine optimal calibration.
-  5. Multi-asset dynamic regime-adaptive weighting backtest across all 8 assets (Sharpe, MDD, returns).
+  5. Multi-asset dynamic regime-adaptive weighting regression test across all 8 assets (synthetic data only).
 """
 
 import numpy as np
@@ -503,7 +503,11 @@ if __name__ == "__main__":
     print("\n=== EŞİK VE HİSTEREZİS DUYARLILIK ANALİZİ ===")
     print(sensitivity_df.to_string(index=False))
     
-    # Add multi-asset results to summary
+    base_summary['validation_mode'] = 'SYNTHETIC_PARAMETERIZED'
+    base_summary['performance_claims_valid_for_live_markets'] = False
+    base_summary['performance_warning'] = (
+        'These metrics come from synthetic, manually parameterized regime data and are software/regime regression evidence only.'
+    )
     base_summary['multi_asset_dynamic_backtest'] = asset_backtest_df.to_dict('records')
     
     # Save backtest results directly into repository directory
@@ -513,6 +517,15 @@ if __name__ == "__main__":
     out_asset_path = os.path.join(repo_dir, 'asset_dynamic_backtest_results.csv')
     
     base_results.to_csv(out_ts_path)
+    existing_summary = {}
+    if os.path.exists(out_json_path):
+        try:
+            with open(out_json_path, 'r', encoding='utf-8') as f:
+                existing_summary = json.load(f)
+        except Exception:
+            existing_summary = {}
+    if isinstance(existing_summary, dict) and 'autonomous_daily_monitor' in existing_summary:
+        base_summary['autonomous_daily_monitor'] = existing_summary['autonomous_daily_monitor']
     with open(out_json_path, 'w', encoding='utf-8') as f:
         json.dump(base_summary, f, indent=2, ensure_ascii=False, default=json_default)
     sensitivity_df.to_csv(out_sens_path, index=False)

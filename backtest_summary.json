@@ -949,5 +949,8 @@
       }
     ],
     "last_persisted_at_utc": "2026-09-22T11:30:27.806943+00:00"
-  }
+  },
+  "validation_mode": "SYNTHETIC_PARAMETERIZED",
+  "performance_claims_valid_for_live_markets": false,
+  "performance_warning": "These metrics come from synthetic, manually parameterized regime data and are software/regression validation only; they are not empirical live-market performance evidence."
 }

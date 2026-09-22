@@ -1,5 +1,5 @@
 """
-🏛️ Macro Event Interpretation System v1.2
+🏛️ Macro Event Interpretation System v2.2
 Module: macro-event-interpretation-system
 Specification:
   - Principles:
@@ -24,11 +24,12 @@ from typing import Dict, List, Optional, Tuple, Any
 # ============================================================================
 # SHARED MACRO EVENT INPUT CONTRACT
 # ============================================================================
-MACRO_EVENT_INPUT_SCHEMA_VERSION = "1.2"
+MACRO_EVENT_INPUT_SCHEMA_VERSION = "2.2"
 MACRO_INPUT_KEYS = (
     "oil", "bdi", "hy_oas", "ig_oas", "spx", "ust10y", "ust2y",
     "dtwex", "dxy", "usdjpy", "vix", "move", "btc", "dfii10",
     "t10yie", "ndl", "gold", "xag", "hg", "dbb", "nfci", "icsa",
+    "bank_equity", "small_caps",
 )
 CRITICAL_INPUT_KEYS = (
     "oil", "hy_oas", "dfii10", "dxy", "vix", "move", "t10yie",
@@ -59,13 +60,16 @@ EXPECTED_MAX_AGE_BUSINESS_DAYS = {
     "ust10y": 7, "ust2y": 7, "dtwex": 7, "dxy": 3, "usdjpy": 3,
     "vix": 3, "move": 3, "btc": 3, "dfii10": 7, "t10yie": 7,
     "ndl": 10, "gold": 3, "xag": 3, "hg": 3, "dbb": 3,
-    "nfci": 10, "icsa": 10,
+    "nfci": 10, "icsa": 10, "bank_equity": 3, "small_caps": 3,
 }
 
 RISK_APPETITE_ASSETS = {
     "S&P 500 (SPX)", "Nasdaq 100 (NQ)", "Kripto (BTC)",
     "Gümüş (XAG)", "Bakır (HG)", "Ham Petrol (WTI)",
 }
+
+PORTFOLIO_HIGH_BETA_ASSETS = set(RISK_APPETITE_ASSETS)
+PORTFOLIO_DEFENSIVE_ASSETS = {"Altın (XAU)", "ABD Tahvili / Faiz (TLT)"}
 
 def _business_day_age(latest: pd.Timestamp, as_of: pd.Timestamp) -> int:
     latest_d = pd.Timestamp(latest).date()
@@ -174,92 +178,130 @@ def assess_data_freshness(data: Dict[str, Any], as_of: Optional[pd.Timestamp] = 
     }
 
 def compute_structural_risk_state(row: Optional[pd.Series]) -> Dict[str, Any]:
-    """
-    Slow macro state used for portfolio risk budgeting.
-
-    This is deliberately multi-horizon: it combines 20- and 60-session
-    risk-appetite/tightening impulses, so a long risk-on or tightening cycle
-    is not overwritten by a single noisy daily observation.
-    """
+    """Two-speed portfolio-risk state with strategic and tactical layers."""
     if row is None or len(row) == 0:
         return {
-            "state": "BALANCED", "risk_appetite_score": 0.50,
-            "tightening_score": 0.50, "defensive_stress_score": 0.50,
-            "persistence_score": 0.00, "portfolio_risk_budget": 0.50,
-            "cash_target_pct": 50.0, "confidence": 0.0,
+            "state":"BALANCED","risk_appetite_score":0.50,"strategic_risk_score":0.50,
+            "tactical_risk_score":0.50,"tactical_risk_on_event_score":0.50,
+            "tightening_score":0.50,"tightening_score_20":0.50,"tightening_score_60":0.50,
+            "defensive_stress_score":0.50,"persistence_score":0.0,"alignment_score":0.0,
+            "slow_risk_appetite_20":0.50,"slow_risk_appetite_60":0.50,"fast_risk_appetite":0.50,
+            "risk_asset_breadth_5":0.50,"risk_asset_breadth_20":0.50,"risk_asset_breadth_60":0.50,
+            "risk_rotation_5":0.50,"risk_rotation_20":0.50,"risk_rotation_60":0.50,
+            "gold_relative_weakness_5":0.0,"gold_relative_weakness_20":0.0,"gold_relative_weakness_60":0.0,
+            "portfolio_risk_budget":0.50,"cash_target_pct":50.0,"confidence":0.0,
+            "risk_on_streak_days":0,"tightening_streak_days":0,"defensive_streak_days":0,
         }
-
-    get = lambda key, default=0.0: _safe_float(row.get(key, default), default)
-    # Risk appetite: higher is more tolerant of equities/crypto/high-beta assets.
-    fast_ra = np.mean([
-        _sigmoid01(get("basket_ret5d_z"), 1.0),
-        _sigmoid01(-get("hy_oas_z"), 1.0),
-        _sigmoid01(-get("vix_level_z"), 1.0),
-        _sigmoid01(get("ndl_z"), 1.0),
-        _sigmoid01(-get("dxy_chg5_z"), 1.0),
-    ])
-    slow_ra_20 = np.mean([
-        _sigmoid01(get("basket_ret20d_z"), 1.0),
-        _sigmoid01(-get("hy_oas_chg20_z"), 1.0),
-        _sigmoid01(-get("vix_chg20_z"), 1.0),
-        _sigmoid01(get("ndl_chg20_z"), 1.0),
-        _sigmoid01(-get("dxy_chg20_z"), 1.0),
-    ])
-    slow_ra_60 = np.mean([
-        _sigmoid01(get("basket_ret60d_z"), 1.0),
-        _sigmoid01(-get("hy_oas_chg60_z"), 1.0),
-        _sigmoid01(-get("vix_chg60_z"), 1.0),
-        _sigmoid01(get("ndl_chg60_z"), 1.0),
-        _sigmoid01(-get("dxy_chg60_z"), 1.0),
-    ])
-    risk_appetite = float(np.clip(0.20 * fast_ra + 0.35 * slow_ra_20 + 0.45 * slow_ra_60, 0.0, 1.0))
-
-    tightening = float(np.clip(np.mean([
-        _sigmoid01(get("dfii10_chg20_z"), 1.0),
-        _sigmoid01(get("dxy_chg20_z"), 1.0),
-        _sigmoid01(get("hy_oas_chg20_z"), 1.0),
-        _sigmoid01(-get("ndl_chg20_z"), 1.0),
-        _sigmoid01(-get("basket_ret20d_z"), 1.0),
-    ]), 0.0, 1.0))
-
-    defensive_stress = float(np.clip(np.mean([
-        _sigmoid01(get("hy_oas_z"), 0.9),
-        _sigmoid01(get("vix_level_z"), 0.9),
-        _sigmoid01(get("move_pctl252") - 70.0, 18.0),
-        _sigmoid01(get("nfci_z"), 0.9),
-        _sigmoid01(-get("basket_ret5d_z"), 0.9),
-    ]), 0.0, 1.0))
-
-    persistence = float(np.clip(abs(slow_ra_60 - 0.50) * 2.0, 0.0, 1.0))
-    if defensive_stress >= 0.72 or tightening >= 0.70:
-        state = "DEFENSIVE_STRESS" if defensive_stress >= 0.72 else "TIGHTENING"
-    elif risk_appetite >= 0.66 and slow_ra_20 >= 0.58 and slow_ra_60 >= 0.56:
-        state = "RISK_APPETITE_EXPANSION"
+    get=lambda k,d=0.0:_safe_float(row.get(k,d),d)
+    breadth5=float(np.clip(get('risk_asset_breadth_5',0.50),0.0,1.0))
+    breadth20=float(np.clip(get('risk_asset_breadth_20',0.50),0.0,1.0))
+    breadth60=float(np.clip(get('risk_asset_breadth_60',0.50),0.0,1.0))
+    rotation5=float(np.clip(_sigmoid01(get('gold_relative_weakness_5_z'),0.90),0.0,1.0))
+    rotation20=float(np.clip(_sigmoid01(get('gold_relative_weakness_20_z'),0.90),0.0,1.0))
+    rotation60=float(np.clip(_sigmoid01(get('gold_relative_weakness_60_z'),0.90),0.0,1.0))
+    fast_basket=get('cross_asset_risk_basket5d_z', get('basket_ret5d_z'))
+    slow20_basket=get('cross_asset_risk_basket20d_z', get('basket_ret20d_z'))
+    slow60_basket=get('cross_asset_risk_basket60d_z', get('basket_ret60d_z'))
+    fast_ra=float(np.mean([_sigmoid01(fast_basket),_sigmoid01(-get('hy_oas_z')),_sigmoid01(-get('vix_level_z')),_sigmoid01(get('ndl_z')),_sigmoid01(-get('dxy_chg5_z')),breadth5,rotation5]))
+    slow20=float(np.mean([_sigmoid01(slow20_basket),_sigmoid01(-get('hy_oas_chg20_z')),_sigmoid01(-get('vix_chg20_z')),_sigmoid01(get('ndl_chg20_z')),_sigmoid01(-get('dxy_chg20_z')),breadth20,rotation20]))
+    slow60=float(np.mean([_sigmoid01(slow60_basket),_sigmoid01(-get('hy_oas_chg60_z')),_sigmoid01(-get('vix_chg60_z')),_sigmoid01(get('ndl_chg60_z')),_sigmoid01(-get('dxy_chg60_z')),breadth60,rotation60]))
+    strategic=float(np.clip(0.35*slow20+0.65*slow60,0.0,1.0))
+    tactical=float(np.clip(0.65*fast_ra+0.35*slow20,0.0,1.0))
+    ra=float(np.clip(0.45*strategic+0.55*tactical,0.0,1.0))
+    tight20=float(np.mean([_sigmoid01(get('dfii10_chg20_z')),_sigmoid01(get('dxy_chg20_z')),_sigmoid01(get('hy_oas_chg20_z')),_sigmoid01(-get('ndl_chg20_z'))]))
+    tight60=float(np.mean([_sigmoid01(get('dfii10_chg60_z')),_sigmoid01(get('dxy_chg60_z')),_sigmoid01(get('hy_oas_chg60_z')),_sigmoid01(-get('ndl_chg60_z'))]))
+    tight=float(np.clip(0.35*tight20+0.65*tight60,0.0,1.0))
+    defensive=float(np.clip(np.mean([_sigmoid01(get('hy_oas_z'),0.9),_sigmoid01(get('vix_level_z'),0.9),_sigmoid01(get('move_pctl252')-70.0,18.0),_sigmoid01(get('nfci_z'),0.9),_sigmoid01(-fast_basket,0.9)]),0.0,1.0))
+    tactical_event=float(np.clip(np.mean([_sigmoid01(fast_basket,0.75),rotation5,breadth5,_sigmoid01(-get('hy_oas_chg5_z'),0.85),_sigmoid01(-get('vix_chg5_z'),0.85),_sigmoid01(-get('dxy_chg5_z'),0.85)]),0.0,1.0))
+    alignment=float(np.clip(1.0-abs(slow20-slow60),0.0,1.0))
+    persistence=float(np.clip(0.35*abs(strategic-0.50)*2.0+0.25*abs(tactical-0.50)*2.0+0.20*alignment+0.20*max(breadth20-0.50,0.0),0.0,1.0))
+    if defensive>=0.72:
+        state='DEFENSIVE_STRESS'
+    elif tactical>=0.64 and tactical_event>=0.60 and breadth5>=0.50 and strategic>=0.45 and defensive<0.62:
+        state='TACTICAL_RISK_ON_WITH_TIGHTENING' if tight>=0.60 else 'TACTICAL_RISK_ON'
+    elif strategic>=0.62 and tactical>=0.62 and breadth20>=0.55 and defensive<0.62:
+        state='RISK_ON_WITH_TIGHTENING' if tight>=0.60 else 'RISK_APPETITE_EXPANSION'
+    elif tight>=0.65 and strategic<0.58 and tactical<0.60:
+        state='TIGHTENING'
     else:
-        state = "BALANCED"
-
-    # Risk budget is intentionally bounded; this is a portfolio-risk control,
-    # not an all-in/all-out trading signal.
-    risk_budget = float(np.clip(
-        0.25 + 0.65 * risk_appetite - 0.55 * tightening - 0.35 * defensive_stress,
-        0.10, 0.90
-    ))
-    cash_target = float(np.clip(100.0 - 100.0 * risk_budget, 10.0, 90.0))
-    confidence = float(np.clip(0.50 + 0.50 * max(persistence, abs(risk_appetite - tightening)), 0.0, 1.0))
-
+        state='BALANCED'
+    base_budget=0.12+0.72*ra
+    breadth_bonus=0.08*(breadth20-0.50)
+    rotation_bonus=0.10*(rotation20-0.50)
+    tightening_penalty=0.22*max(tight-0.50,0.0)
+    stress_penalty=0.45*max(defensive-0.25,0.0)
+    budget=float(np.clip(base_budget+breadth_bonus+rotation_bonus-tightening_penalty-stress_penalty,0.10,0.90))
+    cash=float(np.clip(100.0*(1.0-budget),10.0,90.0))
+    conf=float(np.clip(0.40+0.25*persistence+0.20*abs(strategic-defensive)+0.15*abs(tactical-defensive),0.0,1.0))
     return {
-        "state": state,
-        "risk_appetite_score": risk_appetite,
-        "tightening_score": tightening,
-        "defensive_stress_score": defensive_stress,
-        "persistence_score": persistence,
-        "slow_risk_appetite_20": float(slow_ra_20),
-        "slow_risk_appetite_60": float(slow_ra_60),
-        "fast_risk_appetite": float(fast_ra),
-        "portfolio_risk_budget": risk_budget,
-        "cash_target_pct": cash_target,
-        "confidence": confidence,
+        'state':state,'risk_appetite_score':ra,'strategic_risk_score':strategic,'tactical_risk_score':tactical,
+        'tactical_risk_on_event_score':tactical_event,'tightening_score':tight,'tightening_score_20':tight20,'tightening_score_60':tight60,
+        'defensive_stress_score':defensive,'persistence_score':persistence,'alignment_score':alignment,
+        'slow_risk_appetite_20':slow20,'slow_risk_appetite_60':slow60,'fast_risk_appetite':fast_ra,
+        'risk_asset_breadth_5':breadth5,'risk_asset_breadth_20':breadth20,'risk_asset_breadth_60':breadth60,
+        'risk_rotation_5':rotation5,'risk_rotation_20':rotation20,'risk_rotation_60':rotation60,
+        'gold_relative_weakness_5':get('gold_relative_weakness_5_z'),'gold_relative_weakness_20':get('gold_relative_weakness_20_z'),'gold_relative_weakness_60':get('gold_relative_weakness_60_z'),
+        'portfolio_risk_budget':budget,'cash_target_pct':cash,'confidence':conf,
+        'risk_on_streak_days':int(get('structural_risk_on_streak_days',0)),'tightening_streak_days':int(get('structural_tightening_streak_days',0)),'defensive_streak_days':int(get('structural_defensive_streak_days',0)),
     }
+
+
+def compute_effective_macro_asset_multiplier(asset_name: str, deterministic_multiplier: float, structural_state: Dict[str, Any]) -> float:
+    """Blend deterministic macro exposure with independent portfolio risk appetite."""
+    macro_mult=float(np.clip(deterministic_multiplier,0.25,1.50))
+    strategic=float(np.clip(structural_state.get('strategic_risk_score',0.50),0,1))
+    tactical=float(np.clip(structural_state.get('tactical_risk_score',0.50),0,1))
+    rotation=float(np.clip(structural_state.get('risk_rotation_20',0.50),0,1))
+    stress=float(np.clip(structural_state.get('defensive_stress_score',0.50),0,1))
+    risk_support=float(np.clip(0.45*strategic+0.55*tactical+0.15*(rotation-0.50)-0.55*max(stress-0.25,0.0),0.0,1.0))
+    if asset_name in PORTFOLIO_HIGH_BETA_ASSETS:
+        blend=float(np.clip(0.20+0.55*risk_support,0.15,0.75))
+        return float(np.clip((1.0-blend)*macro_mult+blend*1.0,0.45,1.35))
+    return macro_mult
+
+
+def compute_portfolio_asset_tilt(asset_name: str, structural_state: Dict[str, Any]) -> float:
+    """Bounded asset tilt driven by strategic cycle and tactical risk rotation."""
+    strategic=float(np.clip(structural_state.get('strategic_risk_score',0.50),0.0,1.0)); tactical=float(np.clip(structural_state.get('tactical_risk_score',0.50),0.0,1.0))
+    rotation=float(np.clip(structural_state.get('risk_rotation_20',0.50),0.0,1.0)); breadth=float(np.clip(structural_state.get('risk_asset_breadth_20',0.50),0.0,1.0))
+    tight=float(np.clip(structural_state.get('tightening_score',0.50),0.0,1.0)); stress=float(np.clip(structural_state.get('defensive_stress_score',0.50),0.0,1.0))
+    budget=float(np.clip(structural_state.get('portfolio_risk_budget',0.50),0.10,0.90)); budget_factor=float(np.clip(budget/0.50,0.70,1.45))
+    if asset_name in PORTFOLIO_HIGH_BETA_ASSETS:
+        raw=0.55+0.48*tactical+0.34*strategic+0.26*rotation+0.18*breadth-0.40*stress-0.20*max(tight-0.55,0.0)
+        return float(np.clip(raw*budget_factor,0.45,1.60))
+    if asset_name=='Altın (XAU)':
+        raw=1.08-0.30*rotation-0.15*tactical+0.14*stress+0.08*tight
+        return float(np.clip(raw,0.58,1.20))
+    if asset_name=='ABD Tahvili / Faiz (TLT)':
+        raw=0.95-0.20*tactical+0.28*stress-0.30*tight
+        return float(np.clip(raw,0.50,1.15))
+    return 1.0
+
+
+def compute_target_portfolio_weights(confirmed_regime_id: int, subtype: str, structural_state: Dict[str, Any]) -> Dict[str, float]:
+    """Produce an explicit 8-asset + cash target allocation summing to 100%."""
+    base={a:1/8 for a in ["Altın (XAU)","Gümüş (XAG)","Ham Petrol (WTI)","Bakır (HG)","S&P 500 (SPX)","Nasdaq 100 (NQ)","Kripto (BTC)","ABD Tahvili / Faiz (TLT)"]}
+    det_mult=get_macro_interpretation_asset_multipliers(confirmed_regime_id,subtype)
+    scores={}
+    for asset,bw in base.items():
+        scores[asset]=bw*compute_effective_macro_asset_multiplier(asset,det_mult.get(asset,1.0),structural_state)*compute_portfolio_asset_tilt(asset,structural_state)
+    total=sum(scores.values()) or 1.0
+    budget=float(np.clip(structural_state.get('portfolio_risk_budget',0.50),0.10,0.90))
+    invested=budget; cash=1.0-invested
+    out={a:float(invested*scores[a]/total*100.0) for a in scores}
+    out['Nakit / Likit Rezerv']=float(cash*100.0)
+    out['Nakit / Likit Rezerv'] += 100.0-sum(out.values())
+    return out
+
+
+def compute_net_liquidity(walcl: Any, tga: Any, rrp: Any) -> pd.Series:
+    """Canonical U.S. net-liquidity series used by UI and automation."""
+    w,t,r=(_coerce_series(walcl),_coerce_series(tga),_coerce_series(rrp))
+    df=pd.concat([w,t,r],axis=1).sort_index().ffill().dropna()
+    if df.empty:
+        return pd.Series(dtype=float)
+    return (df.iloc[:,0]-df.iloc[:,1]-df.iloc[:,2]*1000.0).dropna().astype(float)
+
 
 def compute_circuit_breaker(series_map: Dict[str, Any]) -> Tuple[bool, List[str]]:
     """Shared systemic-risk circuit breaker for UI and automation."""
@@ -409,201 +451,84 @@ def compute_continuum_regime_state(
     candidate_regime_id: int = 0,
     in_transition: bool = False,
 ) -> Dict[str, Any]:
-    """
-    Event-aware continuous regime classifier.
-
-    Unlike the old Continuum implementation, this layer consumes the same
-    normalized feature row as the deterministic engine, so commodity shocks,
-    real-rate shocks, credit stress, liquidity and volatility cannot silently
-    bypass the active regime calculation.
-    """
+    """Event-aware continuous regime layer with independent cross-asset risk appetite."""
     if row is None or len(row) == 0:
         return {
-            'dominant_regime': 'GOLDILOCKS',
-            'regime_title': 'GOLDILOCKS (%100 - Varsayılan)',
-            'blended_multiplier': 1.00,
-            'inflation_anchor': 0.0,
-            'regime_probs': {'GOLDILOCKS': 1.0, 'REFLASYON': 0.0, 'STAGFLASYON': 0.0, 'DEFLASYON': 0.0},
-            'diagnostics': {},
+            'dominant_regime':'GOLDILOCKS','regime_title':'GOLDILOCKS (%100 - Varsayılan)',
+            'blended_multiplier':1.00,'inflation_anchor':0.0,
+            'regime_probs':{'GOLDILOCKS':1.0,'REFLASYON':0.0,'STAGFLASYON':0.0,'DEFLASYON':0.0},
+            'diagnostics':{},
         }
-
-    get = lambda key, default=0.0: _safe_float(row.get(key, default), default)
-
-    # Core continuous state variables, all dimensionless or percentile-normalized.
-    inflation = _sigmoid01(get('t10yie_z') - 0.10, 0.65)
-    commodity = _sigmoid01(max(get('commodity_impulse_z'), get('oil_ret20_z'), 0.80 * get('oil_ret5_z')) - 0.10, 0.70)
-    real_rate = _sigmoid01(get('dfii10_chg1_z') - 0.35, 0.70)
-    dollar_pressure = _sigmoid01(get('dxy_chg5_z') + get('dxy_level_z') * 0.35, 0.85)
-    credit_stress = _sigmoid01((0.70 * get('hy_oas_z') + 0.30 * get('ig_oas_z')) - 0.15, 0.85)
-    equity_stress = _sigmoid01(get('vix_level_z') - 0.35, 0.85)
-    bond_stress = _sigmoid01(get('move_pctl252') / 25.0 - 2.0, 0.90)
-    risk_asset_stress = _sigmoid01(-get('basket_ret5d_z') - 0.20, 0.90)
-    financial_conditions_stress = _sigmoid01(get('nfci_z') - 0.10, 0.80)
-    liquidity = _sigmoid01(get('ndl_z'), 0.80)
-    employment_health = _sigmoid01(-get('icsa_level_z'), 0.80)
-    trade_growth = _sigmoid01(get('bdi_level_z'), 1.00)
-
-    systemic_stress = float(np.clip(
-        0.32 * credit_stress
-        + 0.24 * equity_stress
-        + 0.16 * bond_stress
-        + 0.14 * risk_asset_stress
-        + 0.10 * financial_conditions_stress
-        + 0.06 * (1.0 - liquidity),
-        0.0, 1.0
-    ))
-    growth = float(np.clip(
-        0.45 * employment_health + 0.35 * trade_growth + 0.20 * liquidity,
-        0.0, 1.0
-    ))
-
-    structural = compute_structural_risk_state(row)
-    structural_risk = structural['risk_appetite_score']
-    structural_tightening = structural['tightening_score']
-    structural_stress = structural['defensive_stress_score']
-
-    # Regime logits: these encode relationships, not hard boundaries.
-    logits = {
-        'GOLDILOCKS': (
-            1.80 * growth
-            + 1.35 * liquidity
-            + 0.90 * (1.0 - systemic_stress)
-            - 0.90 * inflation
-            - 0.65 * commodity
-            - 0.55 * real_rate
-            + 0.55 * structural_risk
-            - 0.40 * structural_tightening
-        ),
-        'REFLASYON': (
-            1.30 * commodity
-            + 1.10 * inflation
-            + 0.90 * liquidity
-            + 0.45 * growth
-            - 0.85 * systemic_stress
-            - 0.35 * real_rate
-            + 0.35 * structural_risk
-            - 0.20 * structural_tightening
-        ),
-        'STAGFLASYON': (
-            1.55 * commodity
-            + 1.25 * inflation
-            + 1.25 * systemic_stress
-            + 0.65 * real_rate
-            + 0.35 * dollar_pressure
-            - 0.90 * growth
-            - 0.45 * liquidity
-            - 0.35 * structural_risk
-            + 0.55 * structural_tightening
-            + 0.30 * structural_stress
-        ),
-        'DEFLASYON': (
-            1.65 * systemic_stress
-            + 1.10 * real_rate
-            + 0.55 * dollar_pressure
-            + 0.55 * (1.0 - liquidity)
-            - 1.05 * inflation
-            - 0.80 * commodity
-            - 0.75 * growth
-            - 0.20 * structural_risk
-            + 0.65 * structural_tightening
-            + 0.45 * structural_stress
-        ),
+    get=lambda key,default=0.0:_safe_float(row.get(key,default),default)
+    inflation=_sigmoid01(get('t10yie_z')-0.10,0.65)
+    commodity=_sigmoid01(max(get('commodity_impulse_z'),get('oil_ret20_z'),0.80*get('oil_ret5_z'))-0.10,0.70)
+    real_rate=_sigmoid01(get('dfii10_chg1_z')-0.35,0.70)
+    dollar_pressure=_sigmoid01(get('dxy_chg5_z')+get('dxy_level_z')*0.35,0.85)
+    credit_stress=_sigmoid01((0.70*get('hy_oas_z')+0.30*get('ig_oas_z'))-0.15,0.85)
+    equity_stress=_sigmoid01(get('vix_level_z')-0.35,0.85)
+    bond_stress=_sigmoid01(get('move_pctl252')/25.0-2.0,0.90)
+    risk_asset_stress=_sigmoid01(-get('basket_ret5d_z')-0.20,0.90)
+    financial_conditions_stress=_sigmoid01(get('nfci_z')-0.10,0.80)
+    liquidity=_sigmoid01(get('ndl_z'),0.80)
+    employment_health=_sigmoid01(-get('icsa_level_z'),0.80)
+    trade_growth=_sigmoid01(get('bdi_level_z'),1.00)
+    structural=compute_structural_risk_state(row)
+    structural_risk=structural['risk_appetite_score']
+    structural_tightening=structural['tightening_score']
+    structural_stress=structural['defensive_stress_score']
+    systemic_stress=float(np.clip(
+        0.30*credit_stress+0.22*equity_stress+0.16*bond_stress
+        +0.14*risk_asset_stress+0.10*financial_conditions_stress+0.08*(1.0-liquidity),0.0,1.0))
+    growth=float(np.clip(0.40*employment_health+0.30*trade_growth+0.20*liquidity+0.10*structural_risk,0.0,1.0))
+    logits={
+        'GOLDILOCKS':1.55*growth+1.25*liquidity+0.90*(1.0-systemic_stress)+0.90*structural_risk+0.35*get('risk_asset_breadth_60',0.5)-0.95*inflation-0.45*commodity-0.40*real_rate-0.25*structural_tightening,
+        'REFLASYON':1.20*commodity+1.00*inflation+0.85*liquidity+0.55*growth+0.30*structural_risk+0.20*get('risk_asset_breadth_60',0.5)-0.75*systemic_stress-0.35*real_rate,
+        'STAGFLASYON':1.45*commodity+1.15*inflation+1.05*systemic_stress+0.55*real_rate+0.30*dollar_pressure-0.75*growth-0.35*liquidity-0.55*structural_risk-0.20*get('risk_asset_breadth_60',0.5)+0.30*structural_tightening+0.20*structural_stress,
+        'DEFLASYON':1.55*systemic_stress+1.00*real_rate+0.50*dollar_pressure+0.55*(1.0-liquidity)+0.35*structural_tightening-1.00*inflation-0.75*commodity-0.65*growth-0.70*structural_risk,
     }
-
-    # Deterministic event bridge: the continuous layer must react to the same
-    # confirmed/candidate event instead of working as an unrelated model.
-    regime_overlay = {k: 0.0 for k in logits}
-    overlays = {
-        1: {'STAGFLASYON': 2.20, 'REFLASYON': 0.85},
-        2: {'DEFLASYON': 2.30, 'STAGFLASYON': 0.55},
-        3: {'DEFLASYON': 1.55, 'STAGFLASYON': 0.95},
-        4: {'DEFLASYON': 2.35, 'STAGFLASYON': 0.55},
-        5: {'GOLDILOCKS': 1.25, 'REFLASYON': 0.95},
-    }
-
-    if confirmed_regime_id in overlays:
-        for key, value in overlays[confirmed_regime_id].items():
-            regime_overlay[key] += value
-
-    # Candidate shock/rally gets a smaller boost while hysteresis is pending.
-    if in_transition and candidate_regime_id in overlays and candidate_regime_id != confirmed_regime_id:
-        transition_strength = 0.55 if candidate_regime_id in (1, 2, 3, 4) else 0.35
-        for key, value in overlays[candidate_regime_id].items():
-            regime_overlay[key] += value * transition_strength
-
-    adjusted_logits = {k: logits[k] + regime_overlay[k] for k in logits}
-    probs = _softmax(adjusted_logits, temperature=0.55)
-
-    # Explicit rare-event guardrails. If a very strong commodity/inflation
-    # shock or systemic shock is present, do not allow the softmax to hide it.
-    commodity_event = max(get('commodity_impulse_z'), get('oil_ret20_z'), 0.80 * get('oil_ret5_z'))
-    real_rate_event = get('dfii10_chg1_z')
-    stress_event = max(get('vix_level_z'), get('hy_oas_z'), get('ig_oas_z'))
-
-    if commodity_event >= 2.20 and inflation >= 0.62:
-        probs = {k: float(v) * 0.55 for k, v in probs.items()}
-        probs['STAGFLASYON'] += 0.28
-        probs['REFLASYON'] += 0.17
-    elif commodity_event >= 1.80:
-        probs = {k: float(v) * 0.70 for k, v in probs.items()}
-        probs['REFLASYON'] += 0.18
-        probs['STAGFLASYON'] += 0.12
-
-    if real_rate_event >= 2.20 and get('dxy_chg5_z') > 0.20:
-        probs = {k: float(v) * 0.70 for k, v in probs.items()}
-        probs['DEFLASYON'] += 0.20
-        if inflation > 0.55:
-            probs['STAGFLASYON'] += 0.12
-
-    if stress_event >= 2.50 and systemic_stress >= 0.65:
-        probs = {k: float(v) * 0.65 for k, v in probs.items()}
-        probs['DEFLASYON'] += 0.25
-        probs['STAGFLASYON'] += 0.10
-
-    total = sum(probs.values()) or 1.0
-    probs = {k: float(v / total) for k, v in probs.items()}
-    dominant_regime = max(probs, key=probs.get)
-    dom_pct = int(round(probs[dominant_regime] * 100.0))
-
-    base_multipliers = {
-        'GOLDILOCKS': 1.10,
-        'REFLASYON': 1.18,
-        'STAGFLASYON': 1.35,
-        'DEFLASYON': 0.82,
-    }
-    base_blended_multiplier = float(sum(probs[k] * base_multipliers[k] for k in base_multipliers))
-    structural_multiplier = float(np.clip(0.78 + 0.42 * structural_risk - 0.30 * structural_tightening - 0.16 * structural_stress, 0.62, 1.16))
-    blended_multiplier = float(np.clip(base_blended_multiplier * structural_multiplier, 0.60, 1.25))
-    inf_anchor = get('t10yie_level', 0.0)
-    title_map = {
-        'GOLDILOCKS': f'GOLDILOCKS (%{dom_pct} - Büyüme/Likidite Dengesi)',
-        'REFLASYON': f'REFLASYON (%{dom_pct} - Emtia/Enflasyon + Likidite)',
-        'STAGFLASYON': f'STAGFLASYON (%{dom_pct} - Emtia/Enflasyon + Stres)',
-        'DEFLASYON': f'DEFLASYONİST DARALMA (%{dom_pct} - Stres/Sıkı Finansal Koşullar)',
-    }
-
+    # Bounded deterministic context bridge. The previous 2+ logit overlays made
+    # the continuum self-reinforcing around the old confirmed regime.
+    bridge={k:0.0 for k in logits}
+    small={1:{'STAGFLASYON':0.40,'REFLASYON':0.15},2:{'DEFLASYON':0.45,'STAGFLASYON':0.10},3:{'DEFLASYON':0.30,'STAGFLASYON':0.12},4:{'DEFLASYON':0.45,'STAGFLASYON':0.08},5:{'GOLDILOCKS':0.35,'REFLASYON':0.20}}
+    if confirmed_regime_id in small:
+        for k,v in small[confirmed_regime_id].items(): bridge[k]+=v
+    if in_transition and candidate_regime_id in small and candidate_regime_id!=confirmed_regime_id:
+        for k,v in small[candidate_regime_id].items(): bridge[k]+=v*0.85
+    probs=_softmax({k:logits[k]+bridge[k] for k in logits},temperature=0.60)
+    commodity_event=max(get('commodity_impulse_z'),get('oil_ret20_z'),0.80*get('oil_ret5_z'))
+    real_rate_event=get('dfii10_chg1_z')
+    stress_event=max(get('vix_level_z'),get('hy_oas_z'),get('ig_oas_z'))
+    if commodity_event>=2.20 and inflation>=0.62 and structural_risk<0.62:
+        probs={k:float(v)*0.55 for k,v in probs.items()}; probs['STAGFLASYON']+=0.28; probs['REFLASYON']+=0.17
+    elif commodity_event>=1.80 and structural_risk<0.66:
+        probs={k:float(v)*0.72 for k,v in probs.items()}; probs['REFLASYON']+=0.16; probs['STAGFLASYON']+=0.12
+    if real_rate_event>=2.20 and get('dxy_chg5_z')>0.20 and structural_risk<0.62:
+        probs={k:float(v)*0.70 for k,v in probs.items()}; probs['DEFLASYON']+=0.20
+        if inflation>0.55: probs['STAGFLASYON']+=0.10
+    if stress_event>=2.50 and systemic_stress>=0.65:
+        probs={k:float(v)*0.65 for k,v in probs.items()}; probs['DEFLASYON']+=0.25; probs['STAGFLASYON']+=0.10
+    total=sum(probs.values()) or 1.0; probs={k:float(v/total) for k,v in probs.items()}
+    dominant=max(probs,key=probs.get); dom_pct=int(round(probs[dominant]*100.0))
+    base={'GOLDILOCKS':1.10,'REFLASYON':1.18,'STAGFLASYON':1.35,'DEFLASYON':0.82}
+    base_mult=float(sum(probs[k]*base[k] for k in base))
+    structural_mult=float(np.clip(0.82+0.35*structural_risk-0.22*structural_tightening-0.15*structural_stress,0.65,1.15))
+    blended=float(np.clip(base_mult*structural_mult,0.60,1.25))
+    titles={'GOLDILOCKS':f'GOLDILOCKS (%{dom_pct} - Büyüme/Likidite Dengesi)','REFLASYON':f'REFLASYON (%{dom_pct} - Emtia/Enflasyon + Risk İştahı)','STAGFLASYON':f'STAGFLASYON (%{dom_pct} - Emtia/Enflasyon + Stres)','DEFLASYON':f'DEFLASYONİST DARALMA (%{dom_pct} - Stres/Sıkı Finansal Koşullar)'}
     return {
-        'dominant_regime': dominant_regime,
-        'regime_title': title_map[dominant_regime],
-        'blended_multiplier': blended_multiplier,
-        'inflation_anchor': inf_anchor,
-        'regime_probs': probs,
-        'structural_state': structural,
-        'diagnostics': {
-            'inflation_pressure': inflation,
-            'commodity_pressure': commodity,
-            'real_rate_pressure': real_rate,
-            'systemic_stress': systemic_stress,
-            'growth_health': growth,
-            'liquidity_health': liquidity,
-            'commodity_event_z': commodity_event,
-            'real_rate_event_z': real_rate_event,
-            'stress_event_z': stress_event,
-            'structural_risk_appetite_20_z': get('structural_risk_appetite_20_z'),
-            'structural_risk_appetite_60_z': get('structural_risk_appetite_60_z'),
-            'structural_tightening_20_z': get('structural_tightening_20_z'),
-            'structural_tightening_60_z': get('structural_tightening_60_z'),
-            'structural_state': structural['state'],
+        'dominant_regime':dominant,'regime_title':titles[dominant],'blended_multiplier':blended,'inflation_anchor':get('t10yie_level',0.0),'regime_probs':probs,
+        'structural_state':structural,
+        'diagnostics':{
+            'inflation_pressure':inflation,'commodity_pressure':commodity,'real_rate_pressure':real_rate,
+            'systemic_stress':systemic_stress,'growth_health':growth,'liquidity_health':liquidity,
+            'commodity_event_z':commodity_event,'real_rate_event_z':real_rate_event,'stress_event_z':stress_event,
+            'structural_risk_appetite_20_z':get('structural_risk_appetite_20_z'),'structural_risk_appetite_60_z':get('structural_risk_appetite_60_z'),
+            'structural_tightening_20_z':get('structural_tightening_20_z'),'structural_tightening_60_z':get('structural_tightening_60_z'),
+            'risk_appetite_score':structural_risk,'tightening_score':structural_tightening,'defensive_stress_score':structural_stress,
+            'risk_asset_breadth_60':get('risk_asset_breadth_60',0.50),'gold_relative_weakness_60_z':get('gold_relative_weakness_60_z'),
+            'structural_state':structural['state'],
+            'strategic_risk_score':structural['strategic_risk_score'],'tactical_risk_score':structural['tactical_risk_score'],
+            'tactical_risk_on_event_score':structural['tactical_risk_on_event_score'],'risk_rotation_5':structural['risk_rotation_5'],
+            'risk_rotation_20':structural['risk_rotation_20'],'risk_asset_breadth_5':structural['risk_asset_breadth_5'],
         },
     }
 
@@ -631,8 +556,8 @@ class MacroEventInterpretationSystem:
         
         # 1. Regime 1 Indicators
         if 'oil' in df:
-            ret_5d = df['oil'].pct_change(5)
-            ret_20d = df['oil'].pct_change(20)
+            ret_5d = df['oil'].pct_change(5, fill_method=None)
+            ret_20d = df['oil'].pct_change(20, fill_method=None)
             features['oil_ret5_z'] = calc_rolling_zscore(ret_5d, cfg.rolling_window_52w, cfg.min_periods_52w)
             features['oil_ret20_z'] = calc_rolling_zscore(ret_20d, cfg.rolling_window_52w, cfg.min_periods_52w)
         else:
@@ -644,7 +569,7 @@ class MacroEventInterpretationSystem:
         commodity_return_zs = []
         for commodity_key in ('oil', 'gold', 'xag', 'hg', 'dbb'):
             if commodity_key in df:
-                ret = df[commodity_key].pct_change(20)
+                ret = df[commodity_key].pct_change(20, fill_method=None)
                 z = calc_rolling_zscore(ret, cfg.rolling_window_52w, cfg.min_periods_52w)
                 features[f'{commodity_key}_ret20_z'] = z
                 commodity_return_zs.append(z)
@@ -669,12 +594,12 @@ class MacroEventInterpretationSystem:
             features['hy_oas_slope10'] = 0.0
             
         if 'spx' in df and 'ust10y' in df:
-            ret_spx = df['spx'].pct_change()
+            ret_spx = df['spx'].pct_change(fill_method=None)
             # If ust10y is yield (< 25), convert yield change to bond return:
             if df['ust10y'].mean() < 25.0:
                 ret_ust10 = -df['ust10y'].diff() * 8.0
             else:
-                ret_ust10 = df['ust10y'].pct_change()
+                ret_ust10 = df['ust10y'].pct_change(fill_method=None)
             features['spx_ust10_corr60'] = calc_rolling_correlation(ret_spx, ret_ust10, window=60)
         else:
             features['spx_ust10_corr60'] = 0.0
@@ -708,12 +633,12 @@ class MacroEventInterpretationSystem:
             
         # Equal-weighted basket (BTC + SPX) 5-day return
         if 'btc' in df and 'spx' in df:
-            ret_btc_5d = df['btc'].pct_change(5)
-            ret_spx_5d = df['spx'].pct_change(5)
+            ret_btc_5d = df['btc'].pct_change(5, fill_method=None)
+            ret_spx_5d = df['spx'].pct_change(5, fill_method=None)
             basket_ret5d = 0.5 * ret_btc_5d + 0.5 * ret_spx_5d
             features['basket_ret5d_z'] = calc_rolling_zscore(basket_ret5d, cfg.rolling_window_52w, cfg.min_periods_52w)
         elif 'spx' in df:
-            ret_spx_5d = df['spx'].pct_change(5)
+            ret_spx_5d = df['spx'].pct_change(5, fill_method=None)
             features['basket_ret5d_z'] = calc_rolling_zscore(ret_spx_5d, cfg.rolling_window_52w, cfg.min_periods_52w)
         else:
             features['basket_ret5d_z'] = 0.0
@@ -775,16 +700,16 @@ class MacroEventInterpretationSystem:
             features['icsa_chg4w_z'] = 0.0
             
         if 'gold' in df:
-            features['gold_ret20'] = df['gold'].pct_change(20)
+            features['gold_ret20'] = df['gold'].pct_change(20, fill_method=None)
         else:
             features['gold_ret20'] = 0.0
 
         # 6. Multi-horizon structural change layer. These features catch
         # persistent regime moves that a one-day event Z-score can miss.
-        horizon_defs = ((20, '20'), (60, '60'))
+        horizon_defs = ((5, '5'), (20, '20'), (60, '60'))
         for horizon, suffix in horizon_defs:
             if 'oil' in df:
-                features[f'oil_ret{suffix}_z'] = calc_rolling_zscore(df['oil'].pct_change(horizon), cfg.rolling_window_52w, cfg.min_periods_52w)
+                features[f'oil_ret{suffix}_z'] = calc_rolling_zscore(df['oil'].pct_change(horizon, fill_method=None), cfg.rolling_window_52w, cfg.min_periods_52w)
             else:
                 features[f'oil_ret{suffix}_z'] = 0.0
             for key in ('dfii10', 'dxy', 'hy_oas', 'ndl', 'vix'):
@@ -793,17 +718,41 @@ class MacroEventInterpretationSystem:
                 else:
                     features[f'{key}_chg{suffix}_z'] = 0.0
             if 'spx' in df and 'btc' in df:
-                basket_ret = 0.5 * df['spx'].pct_change(horizon) + 0.5 * df['btc'].pct_change(horizon)
+                basket_ret = 0.5 * df['spx'].pct_change(horizon, fill_method=None) + 0.5 * df['btc'].pct_change(horizon, fill_method=None)
             elif 'spx' in df:
-                basket_ret = df['spx'].pct_change(horizon)
+                basket_ret = df['spx'].pct_change(horizon, fill_method=None)
             else:
                 basket_ret = pd.Series(0.0, index=df.index)
             features[f'basket_ret{suffix}d_z'] = calc_rolling_zscore(basket_ret, cfg.rolling_window_52w, cfg.min_periods_52w)
 
+        # Cross-asset risk breadth and gold relative weakness. These support
+        # the portfolio risk state without forcing the deterministic macro regime.
+        for horizon, suffix in ((5, '5'), (20, '20'), (60, '60')):
+            risk_zs = []
+            for key in ('spx', 'btc', 'hg', 'dbb', 'bank_equity', 'small_caps'):
+                if key in df:
+                    rz = calc_rolling_zscore(df[key].pct_change(horizon, fill_method=None), cfg.rolling_window_52w, cfg.min_periods_52w)
+                    features[f'{key}_ret{suffix}_z'] = rz
+                    risk_zs.append(rz)
+            if risk_zs:
+                risk_frame = pd.concat(risk_zs, axis=1)
+                breadth = (risk_frame > 0.0).mean(axis=1).fillna(0.5)
+                risk_basket = risk_frame.mean(axis=1, skipna=True)
+            else:
+                breadth = pd.Series(0.5, index=df.index)
+                risk_basket = pd.Series(0.0, index=df.index)
+            features[f'risk_asset_breadth_{suffix}'] = breadth
+            features[f'cross_asset_risk_basket{suffix}d_z'] = risk_basket
+            if 'gold' in df:
+                gold_z = calc_rolling_zscore(df['gold'].pct_change(horizon, fill_method=None), cfg.rolling_window_52w, cfg.min_periods_52w)
+                features[f'gold_relative_weakness_{suffix}_z'] = risk_basket - gold_z
+            else:
+                features[f'gold_relative_weakness_{suffix}_z'] = 0.0
+
         long_commodity_zs = []
         for commodity_key in ('oil', 'gold', 'xag', 'hg', 'dbb'):
             if commodity_key in df:
-                z60 = calc_rolling_zscore(df[commodity_key].pct_change(60), cfg.rolling_window_52w, cfg.min_periods_52w)
+                z60 = calc_rolling_zscore(df[commodity_key].pct_change(60, fill_method=None), cfg.rolling_window_52w, cfg.min_periods_52w)
                 features[f'{commodity_key}_ret60_z'] = z60
                 long_commodity_zs.append(z60)
             else:
@@ -1138,8 +1087,6 @@ class MacroEventInterpretationSystem:
         confirmed_ids = np.zeros(n, dtype=int)
         subtypes = []
         conflict_notes = []
-        extreme_events = np.zeros(n, dtype=bool)
-        candidate_strengths = np.zeros(n, dtype=float)
         in_transition = np.zeros(n, dtype=bool)
         extreme_flags = []
         candidate_strengths = []
@@ -1224,6 +1171,34 @@ class MacroEventInterpretationSystem:
         result_df['candidate_strength'] = candidate_strengths
         result_df['active_regime_count'] = selected_counts
         result_df['contract_schema_version'] = MACRO_EVENT_INPUT_SCHEMA_VERSION
+
+        structural_records=[]
+        risk_on_streak=0
+        tightening_streak=0
+        defensive_streak=0
+        for row_idx in range(len(result_df)):
+            st_state=compute_structural_risk_state(result_df.iloc[row_idx])
+            name=st_state.get('state','BALANCED')
+            if name in ('RISK_APPETITE_EXPANSION','RISK_ON_WITH_TIGHTENING','TACTICAL_RISK_ON','TACTICAL_RISK_ON_WITH_TIGHTENING'): risk_on_streak+=1
+            else: risk_on_streak=0
+            if name in ('TIGHTENING','RISK_ON_WITH_TIGHTENING','TACTICAL_RISK_ON_WITH_TIGHTENING'): tightening_streak+=1
+            else: tightening_streak=0
+            if name=='DEFENSIVE_STRESS': defensive_streak+=1
+            else: defensive_streak=0
+            st_state['risk_on_streak_days']=risk_on_streak
+            st_state['tightening_streak_days']=tightening_streak
+            st_state['defensive_streak_days']=defensive_streak
+            structural_records.append(st_state)
+
+        for key in ('state','risk_appetite_score','strategic_risk_score','tactical_risk_score','tactical_risk_on_event_score',
+                     'tightening_score','tightening_score_20','tightening_score_60','defensive_stress_score',
+                     'persistence_score','alignment_score','slow_risk_appetite_20','slow_risk_appetite_60','fast_risk_appetite',
+                     'risk_asset_breadth_5','risk_asset_breadth_20','risk_asset_breadth_60',
+                     'risk_rotation_5','risk_rotation_20','risk_rotation_60',
+                     'gold_relative_weakness_5','gold_relative_weakness_20','gold_relative_weakness_60',
+                     'portfolio_risk_budget','cash_target_pct','confidence','risk_on_streak_days',
+                     'tightening_streak_days','defensive_streak_days'):
+            result_df[f'structural_{key}']=[rec.get(key,0.0) for rec in structural_records]
 
         return result_df
 
@@ -1372,10 +1347,10 @@ def render_macro_scorecard_ui(st_obj, eval_details: Dict[str, Any], confirmed_id
         c2 = r1.get('c2', (0.0, 0.0, False))
         
         df_r1 = pd.DataFrame([
-            {"Rol": "Tetikleyici (AND)", "Gösterge": "Petrol Şoku (WTI/Brent)", "Formül": "20 Günlük Getiri 52H Z-Skoru", "Güncel Z / Değer": f"{t1[0]:.2f}", "Eşik Şartı": "Z > 1.50", "Durum": "✅ TETİKLENDİ" if t1[2] else "❌ SAĞLANMADI"},
-            {"Rol": "Tetikleyici (AND)", "Gösterge": "Navlun / Ticaret Çöküşü (BDI/BDRY)", "Formül": "52H Z-Skor Seviyesi", "Güncel Z / Değer": f"{t2[0]:.2f}", "Eşik Şartı": "Z < -1.00", "Durum": "✅ TETİKLENDİ" if t2[2] else "❌ SAĞLANMADI"},
-            {"Rol": "Teyit (AND)", "Gösterge": "Kredi Stresi (FRED:HY OAS)", "Formül": "52H Z-Skor Seviyesi", "Güncel Z / Değer": f"{c1[0]:.2f}", "Eşik Şartı": "Z > 0.50", "Durum": "✅ TEYİT EDİLDİ" if c1[2] else "❌ TEYİT YOK"},
-            {"Rol": "Teyit (AND)", "Gösterge": "Hisse/Tahvil Korelasyonu (SPX & UST10Y)", "Formül": "60 Günlük Kayan Korelasyon", "Güncel Z / Değer": f"{c2[0]:.2f}", "Eşik Şartı": "Korelasyon > 0.00", "Durum": "✅ TEYİT EDİLDİ" if c2[2] else "❌ TEYİT YOK"}
+            {"Rol": "Ana Tetikleyici", "Gösterge": "Petrol / Geniş Emtia Şoku", "Formül": "20G WTI + geniş emtia Z-skoru", "Güncel Z / Değer": f"{t1[0]:.2f}", "Eşik Şartı": "WTI Z > 1.50 veya geniş emtia Z > 1.30", "Durum": "✅ TETİK" if t1[2] else "❌ YOK"},
+            {"Rol": "Destek (OR)", "Gösterge": "Enflasyon / BDI / Emtia Katılımı", "Formül": "T10YIE + BDI + emtia breadth", "Güncel Z / Değer": f"{t2[0]:.2f}", "Eşik Şartı": "Enflasyon Z > 0.25 veya BDI Z < -0.75 veya geniş emtia olayı", "Durum": "✅ DESTEK" if t2[2] else "❌ YOK"},
+            {"Rol": "Destek (OR)", "Gösterge": "Kredi / IG veya Geniş Emtia", "Formül": "HY/IG OAS veya geniş emtia olayı", "Güncel Z / Değer": f"{c1[0]:.2f}", "Eşik Şartı": "HY Z > 0.25 veya IG Z > 0.25 veya geniş emtia olayı", "Durum": "✅ DESTEK" if c1[2] else "❌ YOK"},
+            {"Rol": "Destek (OR)", "Gösterge": "Hisse/Tahvil Risk İlişkisi veya Emtia", "Formül": "60G korelasyon / geniş emtia", "Güncel Z / Değer": f"{c2[0]:.2f}", "Eşik Şartı": "Korelasyon > -0.25 veya geniş emtia olayı", "Durum": "✅ DESTEK" if c2[2] else "❌ YOK"}
         ])
         st_obj.dataframe(df_r1, use_container_width=True)
         

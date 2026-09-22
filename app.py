@@ -14,7 +14,17 @@ from macro_event_interpretation import (
     RegimeThresholdConfig,
     get_macro_interpretation_asset_multipliers,
     render_macro_scorecard_ui,
-    compute_continuum_regime_state
+    compute_continuum_regime_state,
+    compute_structural_risk_state,
+    compute_portfolio_asset_tilt,
+    assess_data_freshness,
+    compute_circuit_breaker,
+    compute_net_liquidity,
+    validate_macro_input,
+    compute_effective_macro_asset_multiplier,
+    compute_target_portfolio_weights,
+    normalize_macro_input,
+    MACRO_EVENT_INPUT_SCHEMA_VERSION
 )
 from asset_regime_weights import (
     get_dynamic_asset_weights,
@@ -33,7 +43,7 @@ except:
     st.stop()
 
 # --- 2. GELİŞMİŞ VERİ VE LİKİDİTE MOTORLARI ---
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=900)
 def fetch_fred_data(series_id, days=2500):
     end_date = datetime.today()
     start_date = end_date - timedelta(days=days)
@@ -41,12 +51,12 @@ def fetch_fred_data(series_id, days=2500):
         data = fred.get_series(series_id, start_date, end_date)
         s = pd.Series(data)
         s.index = pd.to_datetime(s.index)
-        s = s.resample('B').ffill().bfill().dropna()
+        s = s.resample('B').ffill().dropna()
         return s.astype(float)
     except:
         return pd.Series(dtype=float)
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=900)
 def fetch_yf_data(ticker, days=2500):
     end_date = datetime.today()
     start_date = end_date - timedelta(days=days)
@@ -69,7 +79,7 @@ def fetch_yf_data(ticker, days=2500):
         s = pd.Series(s.values.flatten(), index=pd.to_datetime(s.index))
         if s.index.tz is not None:
             s.index = s.index.tz_localize(None)
-        s = s.resample('B').ffill().bfill().dropna()
+        s = s.resample('B').ffill().dropna()
         return s.astype(float)
     except:
         return pd.Series(dtype=float)
@@ -78,7 +88,7 @@ def fetch_yf_data(ticker, days=2500):
 def safe_ratio(s1, s2):
     if s1.empty or s2.empty:
         return pd.Series(dtype=float)
-    df = pd.concat([s1, s2], axis=1).ffill().bfill().dropna()
+    df = pd.concat([s1, s2], axis=1).ffill().dropna()
     if df.empty or len(df.columns) < 2:
         return pd.Series(dtype=float)
     ratio = df.iloc[:, 0] / (df.iloc[:, 1] + 1e-6)
@@ -87,7 +97,7 @@ def safe_ratio(s1, s2):
 def safe_spread(s1, s2):
     if s1.empty or s2.empty:
         return pd.Series(dtype=float)
-    df = pd.concat([s1, s2], axis=1).ffill().bfill().dropna()
+    df = pd.concat([s1, s2], axis=1).ffill().dropna()
     if df.empty or len(df.columns) < 2:
         return pd.Series(dtype=float)
     spread = df.iloc[:, 0] - df.iloc[:, 1]
@@ -109,7 +119,7 @@ def fetch_defillama_stablecoins():
                     records.append({'date': pd.to_datetime(ts, unit='s'), 'mcap': mcap})
             if records:
                 df = pd.DataFrame(records).set_index('date').sort_index()
-                s = df['mcap'].resample('B').ffill().bfill().dropna()
+                s = df['mcap'].resample('B').ffill().dropna()
                 return s.astype(float)
     except:
         pass
@@ -131,7 +141,7 @@ def fetch_crypto_fear_greed():
                     records.append({'date': pd.to_datetime(ts, unit='s'), 'val': val})
             if records:
                 df = pd.DataFrame(records).set_index('date').sort_index()
-                s = df['val'].resample('B').ffill().bfill().dropna()
+                s = df['val'].resample('B').ffill().dropna()
                 return s.astype(float)
     except:
         pass
@@ -141,32 +151,20 @@ def fetch_crypto_fear_greed():
 @st.cache_data(ttl=1800)
 def fetch_g4_global_net_liquidity(days=2500):
     try:
-        walcl = fetch_fred_data('WALCL', days)       
-        tga = fetch_fred_data('WTREGEN', days)       
-        rrp = fetch_fred_data('RRPONTSYD', days)     
-        ecb = fetch_fred_data('ECBASSETSW', days)   
-        eurusd = fetch_yf_data('EURUSD=X', days)     
-        usdjpy = fetch_yf_data('JPY=X', days)       
-        
-        df = pd.concat([walcl, tga, rrp, ecb, eurusd, usdjpy], axis=1).ffill().bfill().dropna()
-        if df.empty or len(df.columns) < 6:
-            return fetch_fred_data('WALCL', days)
-        
-        w = df.iloc[:, 0]
-        t = df.iloc[:, 1]
-        r = df.iloc[:, 2] * 1000.0
-        e = df.iloc[:, 3]
-        eur = df.iloc[:, 4]
-        jpy = df.iloc[:, 5]
-        
-        us_net = w - t - r
-        ecb_usd = e * eur
-        boj_impulse = (jpy / (jpy.rolling(252, min_periods=30).mean() + 1e-5)) * 2000000.0
-        
-        g4_total = us_net + (ecb_usd * 0.35) + (boj_impulse * 0.25)
-        return g4_total.dropna().astype(float)
+        walcl=fetch_fred_data('WALCL',days); tga=fetch_fred_data('WTREGEN',days); rrp=fetch_fred_data('RRPONTSYD',days)
+        ecb=fetch_fred_data('ECBASSETSW',days); boj=fetch_fred_data('JPNASSETS',days)
+        eurusd=fetch_yf_data('EURUSD=X',days); usdjpy=fetch_yf_data('JPY=X',days)
+        parts=[compute_net_liquidity(walcl,tga,rrp).rename('us_net')]
+        if not ecb.empty and not eurusd.empty:
+            d=pd.concat([ecb,eurusd],axis=1).sort_index().ffill().dropna();
+            if not d.empty: parts.append((d.iloc[:,0]*d.iloc[:,1]*0.35).rename('ecb_usd'))
+        if not boj.empty and not usdjpy.empty:
+            d=pd.concat([boj,usdjpy],axis=1).sort_index().ffill().dropna();
+            if not d.empty: parts.append(((d.iloc[:,0]*100.0/(d.iloc[:,1]+1e-8))*0.25).rename('boj_usd'))
+        df=pd.concat(parts,axis=1).sort_index().ffill().dropna()
+        return df.sum(axis=1).dropna().astype(float)
     except:
-        return fetch_fred_data('WALCL', days)
+        return compute_net_liquidity(fetch_fred_data('WALCL',days),fetch_fred_data('WTREGEN',days),fetch_fred_data('RRPONTSYD',days))
 
 # --- 3. KADEMELİ VE PÜRÜZSÜZ REJİM GEÇİŞ MOTORU (FUZZY CONTINUUM) ---
 def get_realtime_macro_regime(
@@ -208,39 +206,12 @@ def get_realtime_macro_regime(
 
 # --- 4. OTONOM ŞALTER MOTORU ---
 def check_systemic_circuit_breaker():
-    move = fetch_yf_data('^MOVE')
-    hy_oas = fetch_fred_data('BAMLH0A0HYM2') 
-    nfci = fetch_fred_data('NFCI')
-    vix = fetch_yf_data('^VIX')
-    
-    reasons = []
-    is_triggered = False
-    
-    if not move.empty and len(move) > 60:
-        move_dyn_thresh = max(120.0, float(move.tail(504).quantile(0.96)))
-        if move.iloc[-1] > move_dyn_thresh:
-            is_triggered = True
-            reasons.append(f"MOVE Tahvil Volatilitesi Dinamik Risk Eşiğinde ({move.iloc[-1]:.1f} > {move_dyn_thresh:.1f})")
-        
-    if not hy_oas.empty and len(hy_oas) > 60:
-        hy_dyn_thresh = max(4.5, float(hy_oas.tail(504).quantile(0.96)))
-        if hy_oas.iloc[-1] > hy_dyn_thresh:
-            is_triggered = True
-            reasons.append(f"Yüksek Getirili Kredi (HY Spread) Dinamik Stres Eşiğinde ({hy_oas.iloc[-1]:.2f}%)")
-            
-    if not nfci.empty and len(nfci) > 50:
-        nfci_dyn_thresh = max(0.05, float(nfci.tail(252).quantile(0.92)))
-        if nfci.iloc[-1] > nfci_dyn_thresh:
-            is_triggered = True
-            reasons.append(f"Chicago Fed NFCI Sıkılaşma Eşiğinde ({nfci.iloc[-1]:.2f} > {nfci_dyn_thresh:.2f})")
-        
-    if not vix.empty and len(vix) > 60:
-        vix_dyn_thresh = max(28.0, float(vix.tail(504).quantile(0.96)))
-        if vix.iloc[-1] > vix_dyn_thresh:
-            is_triggered = True
-            reasons.append(f"VIX Panik Eşiğinde ({vix.iloc[-1]:.1f} > {vix_dyn_thresh:.1f})")
-        
-    return is_triggered, reasons
+    return compute_circuit_breaker({
+        "move": fetch_yf_data('^MOVE'),
+        "hy_oas": fetch_fred_data('BAMLH0A0HYM2'),
+        "nfci": fetch_fred_data('NFCI'),
+        "vix": fetch_yf_data('^VIX'),
+    })
 
 # --- 5. HİBRİT BAYESYEN MAKRO ÇAPA MOTORU (YAPISAL KAYMAYA KARŞI ÖMÜRLÜK ZIRH) ---
 def get_adaptive_anchor(data_series, theoretical_mean, theoretical_std, lookback=1260):
@@ -372,6 +343,8 @@ with st.spinner("Makro Veriler ve Rejimler Analiz Ediliyor..."):
     wresbal = fetch_fred_data('WRESBAL')
     vix = fetch_yf_data('^VIX')
     dbb = fetch_yf_data('DBB')
+    bank_equity = fetch_yf_data('XLF')
+    small_caps = fetch_yf_data('IWM')
     tan_solar = fetch_yf_data('TAN')
     us_debt = fetch_fred_data('GFDEBTN')
     
@@ -393,7 +366,7 @@ with st.spinner("Makro Veriler ve Rejimler Analiz Ediliyor..."):
     walcl_val = fetch_fred_data('WALCL')
     tga_val = fetch_fred_data('WTREGEN')
     rrp_val = fetch_fred_data('RRPONTSYD')
-    ndl_val = safe_spread(walcl_val, safe_spread(tga_val, rrp_val * 1000.0))
+    ndl_val = compute_net_liquidity(walcl_val, tga_val, rrp_val)
     
     # 1. Deterministik Makro Olay Yorumlama Motoru (v1.0)
     macro_input_dict = {
@@ -418,9 +391,15 @@ with st.spinner("Makro Veriler ve Rejimler Analiz Ediliyor..."):
         'hg': fetch_yf_data('HG=F'),
         'dbb': dbb,
         'nfci': nfci,
-        'icsa': icsa
+        'icsa': icsa,
+        'bank_equity': bank_equity,
+        'small_caps': small_caps
     }
     
+    contract_report = validate_macro_input(macro_input_dict, require_critical=False)
+    normalized_input = normalize_macro_input(macro_input_dict, strict=True)
+    data_freshness = assess_data_freshness(normalized_input)
+
     macro_system = MacroEventInterpretationSystem()
     macro_hist_df = macro_system.evaluate_history(macro_input_dict)
     
@@ -444,8 +423,12 @@ with st.spinner("Makro Veriler ve Rejimler Analiz Ediliyor..."):
         macro_conflict_note = "Yok"
         macro_eval = {'details': {}}
         
+    structural_state = compute_structural_risk_state(last_macro_row if not macro_hist_df.empty else None)
+    portfolio_asset_tilt = compute_portfolio_asset_tilt(asset, structural_state)
     macro_asset_mults = get_macro_interpretation_asset_multipliers(confirmed_regime_id, active_macro_subtype)
     active_macro_mult = macro_asset_mults.get(asset, 1.0)
+    effective_macro_mult = compute_effective_macro_asset_multiplier(asset, active_macro_mult, structural_state)
+    target_portfolio_weights = compute_target_portfolio_weights(confirmed_regime_id, active_macro_subtype, structural_state)
     
     # 2. Sürekli Kademeli Rejim (Continuum)
     dominant_regime, regime_title, blended_multiplier, dynamic_inf_anchor, regime_probs, continuum_diagnostics = get_realtime_macro_regime(
@@ -455,6 +438,22 @@ with st.spinner("Makro Veriler ve Rejimler Analiz Ediliyor..."):
         in_transition=macro_in_trans,
     )
     circuit_triggered, circuit_reasons = check_systemic_circuit_breaker()
+
+fresh_pct = 100.0 * data_freshness.get('fresh_count',0) / max(1,len(data_freshness.get('series',{})))
+latest_dates=[v.get('latest') for v in data_freshness.get('series',{}).values() if v.get('latest')]
+latest_date=max(latest_dates) if latest_dates else 'N/A'
+st.caption(f"📡 Veri: {data_freshness.get('fresh_count',0)}/{len(data_freshness.get('series',{}))} taze ({fresh_pct:.0f}%) | Bayat: {data_freshness.get('stale_count',0)} | Eksik: {data_freshness.get('missing_count',0)} | Schema {MACRO_EVENT_INPUT_SCHEMA_VERSION} | Son gözlem: {latest_date}")
+with st.expander('📡 Veri Tazeliği ve Kaynak Tarihlerini İncele'):
+    freshness_rows=[]
+    for key, item in data_freshness.get('series',{}).items():
+        freshness_rows.append({
+            'Seri': key,
+            'Durum': item.get('status'),
+            'Son Gözlem': item.get('latest') or 'N/A',
+            'İş Günü Yaşı': item.get('age_business_days') if item.get('age_business_days') is not None else 'N/A',
+            'İzin Verilen Maksimum': item.get('max_age_business_days')
+        })
+    st.dataframe(pd.DataFrame(freshness_rows), use_container_width=True)
 
 # --- ÜST SEVİYE SEKME MİMARİSİ ---
 main_tab1, main_tab2, main_tab3 = st.tabs([
@@ -515,7 +514,7 @@ with main_tab2:
         st.error(f"⚠️ **SİSTEMİK RİSK ŞALTERİ DEVREDE:** Aşağıdaki anomaliler sebebiyle alım sinyalleri baskılanmıştır:\n* " + "\n* ".join(circuit_reasons))
     
     if confirmed_regime_id in [1, 2, 3, 4]:
-        st.warning(f"🚨 **DETERMİNİSTİK ŞOK REJİMİ AKTİF:** {confirmed_regime_name}. {asset} için Makro Olay Çarpanı: **{active_macro_mult:.2f}x** uygulandı.")
+        st.warning(f"🚨 **DETERMİNİSTİK ŞOK REJİMİ AKTİF:** {confirmed_regime_name}. {asset} için ham Makro Olay Çarpanı: **{active_macro_mult:.2f}x**, etkin risk-uyumlu çarpan: **{effective_macro_mult:.2f}x** uygulandı.")
 
     # Sürekli katmanın olay farkındalığını görünür kıl: bunlar aynı normalize
     # edilmiş olay satırından üretilen bağımsız sürekli durum değişkenleridir.
@@ -528,6 +527,36 @@ with main_tab2:
         st.metric("Sistemik Stres", f"%{continuum_diagnostics.get('systemic_stress', 0.0) * 100:.0f}", f"Stress Z: {continuum_diagnostics.get('stress_event_z', 0.0):+.2f}")
     with d4:
         st.metric("Likidite Sağlığı", f"%{continuum_diagnostics.get('liquidity_health', 0.0) * 100:.0f}", f"Büyüme: %{continuum_diagnostics.get('growth_health', 0.0) * 100:.0f}")
+
+    sr1, sr2, sr3, sr4 = st.columns(4)
+    with sr1:
+        st.metric("Portföy Risk Durumu", structural_state.get("state", "BALANCED"), f"Toplam Risk: %{structural_state.get('risk_appetite_score',0.5)*100:.0f}")
+    with sr2:
+        st.metric("Taktik / Stratejik Risk", f"%{structural_state.get('tactical_risk_score',0.5)*100:.0f} / %{structural_state.get('strategic_risk_score',0.5)*100:.0f}", f"5G Genişlik: %{structural_state.get('risk_asset_breadth_5',0.5)*100:.0f}")
+    with sr3:
+        st.metric("Sıkılaşma / Rotasyon", f"%{structural_state.get('tightening_score',0.5)*100:.0f}", f"Risk→Koruma Rotasyonu: %{structural_state.get('risk_rotation_20',0.5)*100:.0f}")
+    with sr4:
+        st.metric("Portföy Risk Bütçesi", f"%{structural_state.get('portfolio_risk_budget',0.5)*100:.0f}", f"Nakit Hedefi: %{structural_state.get('cash_target_pct',50.0):.0f}")
+
+    if structural_state.get('state') in {'TACTICAL_RISK_ON','TACTICAL_RISK_ON_WITH_TIGHTENING'}:
+        st.info("🔄 Taktik risk rotasyonu algılandı; kısa vadeli risk iştahı, uzun vadeli makro sıkılaşmadan ayrı izleniyor.")
+    elif structural_state.get('state') == 'RISK_ON_WITH_TIGHTENING':
+        st.info("🔄 Risk varlıkları genişlerken para politikası sıkı kalıyor. Makro rejim ve portföy risk iştahı ayrı eksenlerde izleniyor.")
+    elif structural_state.get('state') == 'RISK_APPETITE_EXPANSION':
+        st.success("📈 Çapraz-varlık risk iştahı genişliyor; yüksek beta varlıklar yapısal tilt ile güçlendiriliyor.")
+    elif structural_state.get('state') in {'TIGHTENING','DEFENSIVE_STRESS'}:
+        st.warning("🛡️ Yapısal sıkılaşma/stres nedeniyle risk bütçesi azaltılıyor.")
+
+    st.caption(
+        f"⚡ Taktik Risk-On Olay Skoru: %{structural_state.get('tactical_risk_on_event_score',0.5)*100:.0f} | "
+        f"5G/20G/60G Risk→Altın Rotasyonu: %{structural_state.get('risk_rotation_5',0.5)*100:.0f} / "
+        f"%{structural_state.get('risk_rotation_20',0.5)*100:.0f} / %{structural_state.get('risk_rotation_60',0.5)*100:.0f}"
+    )
+
+    st.markdown("### 🧭 Gerçek Hedef Portföy Dağılımı")
+    st.caption("Makro rejim ile portföy risk iştahı ayrı eksenlerde hesaplanır; risk bütçesi 8 varlık + nakit arasında dağıtılır.")
+    portfolio_df=pd.DataFrame([{"Varlık":k,"Hedef Pay (%)":round(v,2)} for k,v in target_portfolio_weights.items()])
+    st.dataframe(portfolio_df,use_container_width=True,hide_index=True)
 
     in_trans = bool(last_macro_row.get('in_transition', False)) if 'last_macro_row' in locals() and last_macro_row is not None else False
     dyn_weight_map = get_dynamic_asset_weights(asset, confirmed_regime_id, regime_probs, in_trans)
@@ -594,7 +623,7 @@ with main_tab2:
         final_trend_score = final_trend_score * 0.35
         
     # Makro Olay Yorumlama Sistemi Çarpanı Entegrasyonu
-    final_trend_score = float(np.clip(final_trend_score * active_macro_mult, -100.0, 100.0))
+    final_trend_score = float(np.clip(final_trend_score * effective_macro_mult, -100.0, 100.0))
 
     # Pozisyonlama & Volatilite Hedefleme
     ticker_asset_map = {
@@ -631,8 +660,11 @@ with main_tab2:
     if circuit_triggered and raw_position_size > 0:
         raw_position_size = raw_position_size * 0.25 
 
+    risk_budget_cap = max(10.0, float(structural_state.get('portfolio_risk_budget',0.50) * 100.0))
+    raw_position_size = float(np.clip(raw_position_size, -risk_budget_cap, risk_budget_cap))
     allocated_position = max(-100.0, min(100.0, raw_position_size))
     cash_allocation = 100.0 - abs(allocated_position)
+
 
     col1, col2 = st.columns([1, 1.2])
     with col1:
@@ -660,7 +692,7 @@ with main_tab2:
         with c_sub1:
             st.metric(f"Önerilen {asset} Pozisyonu", f"%{allocated_position:+.1f}", f"Vol Çarpanı: {vol_scalar:.2f}x")
         with c_sub2:
-            st.metric("Nakit / Likit Rezerv Payı", f"%{cash_allocation:.1f}", f"Gerçekleşen Vol: %{realized_vol_20:.1f}")
+            st.metric("Seçili Varlıkta Kullanılmayan Pay", f"%{cash_allocation:.1f}", f"Portföy Nakit Hedefi: %{structural_state.get('cash_target_pct',50.0):.1f}")
 
     with col2:
         st.markdown("### 📊 Continuum Master 12 Faktörlü Tablo")
@@ -691,15 +723,18 @@ with main_tab3:
         sens_df = pd.DataFrame()
         
     if b_sum:
+        validation_mode = b_sum.get('validation_mode', 'UNKNOWN')
+        if not b_sum.get('performance_claims_valid_for_live_markets', True):
+            st.warning('⚠️ Bu performans tablosu sentetik/parametrelenmiş veri üzerinden üretilmiştir. Sharpe, Win Rate ve MaxDD değerleri canlı piyasa performansı olarak yorumlanmamalıdır.')
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.metric("Değerlendirilen Süre", f"{b_sum.get('total_evaluated_days', 1800)} İş Günü", "2019 - 2026")
+            st.metric("Doğrulama Gözlem Sayısı", f"{b_sum.get('total_evaluated_days', 1800)}", validation_mode)
         with c2:
             st.metric("Karşılıklı Dışlayıcılık", "✅ %100 Doğrulandı", "active_regime_count: 1")
         with c3:
             st.metric("Whipsaw Azaltma Oranı", f"%{b_sum.get('whipsaw_noise_reduction_pct', 93.0)}", "2 Hafta Histerezis")
         with c4:
-            st.metric("Tarihsel Kriz Başarısı", "✅ 5/5 Tam İsabet", "Tüm Şoklar Yakalandı")
+            st.metric("Şok Fazı Testi", "Sentetik Regresyon", "Canlı Performans Kanıtı Değil")
             
         st.markdown("### 🏛️ Tarihsel Makro Şok Fazlarının Tespit Doğrulaması")
         phases = b_sum.get('historical_phase_detections', {})
@@ -712,7 +747,7 @@ with main_tab3:
             })
         st.dataframe(pd.DataFrame(phase_rows), use_container_width=True)
         
-        st.markdown("### 📈 Rejim Dağılımı (2019-2026 Tarihsel Simülasyonu)")
+        st.markdown("### 📈 Rejim Dağılımı (Sentetik Regresyon Testi)")
         dist = b_sum.get('regime_distribution_pct', {})
         dist_df = pd.DataFrame([{"Rejim Adı": k, "Pay (%)": f"%{v:.2f}"} for k, v in dist.items()])
         st.dataframe(dist_df, use_container_width=True)
@@ -720,7 +755,7 @@ with main_tab3:
         st.markdown("### ⚙️ Dinamik Eşik & Histerezis Duyarlılık Matrisi")
         if not sens_df.empty:
             st.dataframe(sens_df, use_container_width=True)
-        st.markdown("### 🚀 Çoklu Varlık Dinamik Rejim Ağırlıklandırma Backtest Sonuçları (8 Varlık / 1800 İş Günü)")
+        st.markdown("### 🚀 Çoklu Varlık Dinamik Rejim Ağırlıklandırma: Sentetik Regresyon Testi")
         st.markdown("Statik sabit gösterge ağırlıkları ile aktif deterministik rejim ve varlık karakteristiğine dinamik olarak uyum sağlayan kalibre ağırlıklandırmanın karşılaştırması:")
         try:
             asset_b_df = pd.read_csv('asset_dynamic_backtest_results.csv')
