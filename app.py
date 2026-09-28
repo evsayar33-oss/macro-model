@@ -77,7 +77,7 @@ get_asset_regime_weight_matrix=asset_engine.get_asset_regime_weight_matrix
 ASSET_INDICATORS=asset_engine.INDICATORS
 
 # --- 1. SAYFA VE API AYARLARI ---
-st.set_page_config(page_title="Makro Trend v33.0 (Continuum Master Grade)", layout="wide")
+# (İkinci st.set_page_config çağrısı kaldırıldı: Streamlit tek çağrı bekler.)
 
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
@@ -258,94 +258,9 @@ def check_systemic_circuit_breaker():
     })
 
 # --- 5. HİBRİT BAYESYEN MAKRO ÇAPA MOTORU (YAPISAL KAYMAYA KARŞI ÖMÜRLÜK ZIRH) ---
-def get_adaptive_anchor(data_series, theoretical_mean, theoretical_std, lookback=1260):
-    if len(data_series) >= 252:
-        eff_lookback = min(len(data_series), lookback)
-        empirical_mean = float(data_series.tail(eff_lookback).mean())
-        empirical_std = float(data_series.tail(eff_lookback).std())
-        # %50 Teorik Standart + %50 5-Yıllık Gerçekleşen Çapa (Ömür Boyu Kalibrasyon)
-        mu_eff = 0.50 * theoretical_mean + 0.50 * empirical_mean
-        std_eff = 0.50 * theoretical_std + 0.50 * max(empirical_std, 1e-4)
-        return mu_eff, std_eff
-    return theoretical_mean, theoretical_std
-
-def process_indicator(data_series, indicator_name, invert=False):
-    if isinstance(data_series, pd.DataFrame):
-        data_series = data_series.iloc[:, 0]
-        
-    data_series = data_series.dropna()
-    
-    if len(data_series) < 30:
-        val = float(data_series.iloc[-1]) if not data_series.empty else 0.0
-        return 0.0, val
-    
-    current_val = float(data_series.iloc[-1])
-    
-    # 5 YILLIK HİBRİT BAYESYEN ÇAPALARLA HESAPLAMA
-    if "NFCI" in indicator_name:
-        mu, std = get_adaptive_anchor(data_series, 0.0, 0.50)
-        base_z = (mu - current_val) / std
-    elif "HY OAS" in indicator_name or "Kredi" in indicator_name:
-        mu, std = get_adaptive_anchor(data_series, 4.20, 1.50)
-        if "Güvenli Liman" in indicator_name:
-            base_z = (current_val - mu) / std
-        else:
-            base_z = (mu - current_val) / std
-    elif "VIX" in indicator_name:
-        mu, std = get_adaptive_anchor(data_series, 19.5, 6.0)
-        base_z = (mu - current_val) / std
-    elif "MOVE" in indicator_name:
-        mu, std = get_adaptive_anchor(data_series, 90.0, 25.0)
-        base_z = (mu - current_val) / std
-    elif "10Y Breakeven" in indicator_name or "5y5y" in indicator_name:
-        mu, std = get_adaptive_anchor(data_series, 2.20, 0.35)
-        base_z = (current_val - mu) / std
-        if invert:
-            base_z = -base_z
-    elif "Reel Faiz" in indicator_name:
-        mu, std = get_adaptive_anchor(data_series, 1.25, 0.80)
-        base_z = (mu - current_val) / std 
-        if invert:
-            base_z = -base_z
-    elif "Piyasa Faiz İndirim Makası" in indicator_name:
-        base_z = (current_val - 0.0) / 0.80
-    elif "USD/JPY" in indicator_name or "Yen Carry" in indicator_name:
-        if current_val > 155.0:
-            base_z = 0.50 - ((current_val - 155.0) / 8.0)
-        elif current_val < 135.0:
-            base_z = (current_val - 135.0) / 15.0
-        else:
-            base_z = (current_val - 135.0) / 20.0
-    elif "Stablecoin" in indicator_name:
-        pct_90 = (data_series.pct_change(90).dropna().iloc[-1]) * 100 if len(data_series) > 90 else 5.0
-        base_z = (pct_90 - 2.0) / 4.0
-    elif "Korku & Açgözlülük" in indicator_name:
-        if current_val >= 75.0:
-            base_z = 0.50 - ((current_val - 75.0) / 25.0)
-        elif current_val <= 25.0:
-            base_z = (25.0 - current_val) / 20.0
-        else:
-            base_z = (current_val - 45.0) / 20.0
-    elif "G4 Küresel Süper Likidite" in indicator_name:
-        diff_60 = data_series.diff(60).dropna()
-        std_60 = diff_60.std() if len(diff_60) > 10 else 1.0
-        base_z = (diff_60.iloc[-1]) / (std_60 + 1e-5)
-    elif "Altın / Gümüş Değerleme Rasyosu" in indicator_name:
-        base_z = (current_val - 80.0) / 10.0
-    elif "ABD Kamu Borcu" in indicator_name:
-        pct_yoy = (data_series.pct_change(252).dropna().iloc[-1]) * 100 if len(data_series) > 252 else 5.0
-        base_z = (pct_yoy - 4.0) / 3.0
-    else:
-        lookback = min(len(data_series), 252)
-        ema_trend = data_series.ewm(span=40, adjust=False).mean().iloc[-1]
-        mean_baseline = data_series.tail(lookback).mean()
-        std_baseline = data_series.tail(lookback).std()
-        base_z = (ema_trend - mean_baseline) / (std_baseline + 1e-5)
-        if invert:
-            base_z = -base_z
-            
-    z_score = float(max(-2.5, min(2.5, base_z)))
-    return z_score, current_val
+# Tek kaynak: faktör skorlama artık asset_signal_engine.py içinde; uygulama,
+# otonom izleyici ve tarihsel doğrulama AYNI fonksiyonu kullanır.
+from asset_signal_engine import get_adaptive_anchor, process_indicator, INDICATOR_SPECS  # noqa: E402
 
 # --- 6. ARAYÜZ VE UYGULAMA ---
 st.title("🏛️ KÜRESEL MAKRO MODELİ & OLAY YORUMLAMA SİSTEMİ")
@@ -632,6 +547,27 @@ with main_tab2:
         ("Hazine Nakit / Banka Rezervleri (WRESBAL)", wresbal, dyn_weight_map.get("Hazine Nakit / Banka Rezervleri (WRESBAL)", 0.08), False),
     ]
 
+    # Invert bayrakları tek kaynaktan (asset_signal_engine.INDICATOR_SPECS):
+    # "Reel Faiz İndirgeme" artık iki kez ters çevrilmiyor.
+    _invert_by_name = {n: inv for n, _k, inv in INDICATOR_SPECS}
+    metrics_spec = [(n, ser, w, _invert_by_name.get(n, inv)) for n, ser, w, inv in metrics_spec]
+
+    # ------------------------------------------------------------------
+    # 8-ASSET SUPER SCANNER (tablodan ÖNCE hesaplanır)
+    # ------------------------------------------------------------------
+    # Önceki sürümde aşağıdaki tablo döngüsü `selected_asset_state`
+    # değişkenini, o değişken tanımlanmadan ÖNCE kullanıyordu ->
+    # NameError; bu sekme ve sonrasındaki her şey hiç çizilemiyordu.
+    factor_scores = {name: float(process_indicator(data_series, name, invert)[0]) for name, data_series, _w, invert in metrics_spec}
+    asset_price_series = {asset_name: fetch_yf_data(ticker) for asset_name, ticker in ASSET_MARKET_TICKERS.items()}
+    asset_scan = {}
+    for scan_asset, scan_prices in asset_price_series.items():
+        scan_weights = get_dynamic_asset_weights(scan_asset, confirmed_regime_id, regime_probs, macro_in_trans)
+        scan_mult = macro_asset_mults.get(scan_asset, 1.0)
+        asset_scan[scan_asset] = compute_asset_signal_state(scan_asset, factor_scores, scan_weights, scan_prices, structural_state, confirmed_regime_id, scan_mult)
+    asset_signal_scores = {k: float(v['score']) for k,v in asset_scan.items()}
+    selected_asset_state = asset_scan.get(asset, {})
+
     for idx, item in enumerate(metrics_spec):
         name, data_series, dyn_weight, invert = item
         z, val = process_indicator(data_series, name, invert)
@@ -668,15 +604,6 @@ with main_tab2:
     # ======================================================================
     # 8-ASSET SUPER SCANNER
     # ======================================================================
-    factor_scores = {name: float(process_indicator(data_series, name, invert)[0]) for name, data_series, _w, invert in metrics_spec}
-    asset_price_series = {asset_name: fetch_yf_data(ticker) for asset_name, ticker in ASSET_MARKET_TICKERS.items()}
-    asset_scan = {}
-    for scan_asset, scan_prices in asset_price_series.items():
-        scan_weights = get_dynamic_asset_weights(scan_asset, confirmed_regime_id, regime_probs, macro_in_trans)
-        scan_mult = macro_asset_mults.get(scan_asset, 1.0)
-        asset_scan[scan_asset] = compute_asset_signal_state(scan_asset, factor_scores, scan_weights, scan_prices, structural_state, confirmed_regime_id, scan_mult)
-    asset_signal_scores = {k: float(v['score']) for k,v in asset_scan.items()}
-    selected_asset_state = asset_scan.get(asset, {})
     final_trend_score = float(selected_asset_state.get('score', macro_only_score))
     st.metric(f"{asset} Model Sinyali", selected_asset_state.get("label", "NÖTR"), f"Skor {selected_asset_state.get('score',0.0):+.1f} | Güven %{selected_asset_state.get('confidence',0.0)*100:.0f}")
     target_portfolio_weights = compute_target_portfolio_weights(confirmed_regime_id, active_macro_subtype, structural_state, asset_signal_scores=asset_signal_scores)
@@ -781,6 +708,19 @@ with main_tab2:
 # ==========================================
 with main_tab3:
     st.markdown("## 📊 Makro Olay Yorumlama Sistemi: Backtest & Kalibrasyon")
+
+    # GERÇEK VERİ doğrulaması (historical_validation.py, haftalık GitHub işi).
+    # Aşağıdaki eski tablolar SENTETİK veridir; gerçek performans kanıtı bu rapordur.
+    _real_report = os.path.join("validation_reports", "historical_validation_report.md")
+    if os.path.exists(_real_report):
+        with st.expander("🧪 GERÇEK VERİYLE TARİHSEL DOĞRULAMA RAPORU (zaman-noktası doğru)", expanded=True):
+            with open(_real_report, "r", encoding="utf-8") as _fh:
+                st.markdown(_fh.read())
+    else:
+        st.info("🧪 Gerçek veriyle tarihsel doğrulama raporu henüz oluşmadı: GitHub → Actions → "
+                "'Macro Model Historical Validation' → Run workflow.")
+    st.markdown("---")
+    st.markdown("#### ⚠️ Aşağıdakiler SENTETİK veri üzerindeki yazılım regresyon testleridir (canlı performans kanıtı değildir)")
     
     # Load backtest summary and sensitivity files
     try:
@@ -835,7 +775,7 @@ with main_tab3:
 
             
         st.markdown("""
-        #### 💡 Backtest & Matematiksel Kalibrasyon Bulguları:
+        #### 💡 Sentetik Regresyon Testi Notları (gerçek performans iddiası DEĞİLDİR):
         1. **2 Haftalık (10 İş Günü) Histerezis:** Ham tetikleyiciler 273 kez rejim değiştirirken, 2 haftalık histerezis filtresi bunu 19 kesinleşmiş rejime indirerek gereksiz portföy rotasyonunu ve komisyon kaybını %93 oranında önlemiştir.
         2. **52 Haftalık Kayan Z-Skor Üstünlüğü:** Sabit eşikler yerine 252 günlük kayan ortalama/standart sapma kullanılması, yapısal faiz ve enflasyon rejim değişimlerinde modelin bayatlamasını engeller.
         3. **Çatışma Çözümü Arbitrajı:** Hem emtia şoku hem reel faiz artışının çakıştığı 2022 döneminde `T10YIE_Z > 0.5` ayrıştırıcısı Enflasyon Şokunu (Rejim 1) Reel Faiz Şokundan (Rejim 3) başarıyla ayırmıştır.

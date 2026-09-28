@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Tuple, Any
 # ============================================================================
 # SHARED MACRO EVENT INPUT CONTRACT
 # ============================================================================
-MACRO_EVENT_INPUT_SCHEMA_VERSION = "2.3"
+MACRO_EVENT_INPUT_SCHEMA_VERSION = "2.4"
 MACRO_INPUT_KEYS = (
     "oil", "bdi", "hy_oas", "ig_oas", "spx", "ust10y", "ust2y",
     "dtwex", "dxy", "usdjpy", "vix", "move", "btc", "dfii10",
@@ -265,7 +265,7 @@ def normalize_macro_input(data: Dict[str, Any], strict: bool = False) -> Dict[st
 
 def assess_data_freshness(data: Dict[str, Any], as_of: Optional[pd.Timestamp] = None) -> Dict[str, Any]:
     """Return per-series freshness without declaring valid low-frequency data invalid."""
-    as_of = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.utcnow().tz_localize(None)
+    as_of = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.now(tz="UTC").tz_localize(None)
     normalized = {k: _coerce_series(data.get(k)) for k in MACRO_INPUT_KEYS}
     report = {}
     stale_keys = []
@@ -637,6 +637,30 @@ class MacroEventInterpretationSystem:
         # introduced inside the event engine.
         df = pd.DataFrame(data).sort_index().ffill().dropna(how='all')
         features = pd.DataFrame(index=df.index)
+
+        # FIX v2.4 — DTWEXBGS live-edge nowcast.
+        # FRED publishes the broad dollar index about ONE WEEK late (live
+        # state showed dtwex last=09-18 while DXY last=09-25). The forward
+        # fill above therefore made its last ~5 values flat, so every
+        # change-based feature (dtwex_chg5_z -> Regime 2 dollar trigger) was
+        # pinned near 0 exactly at the live edge where it matters. Beyond
+        # its last REAL observation, DTWEX is extended with real-time DXY log
+        # returns scaled by their estimated beta (standard proxy nowcast;
+        # historical rows are untouched).
+        features['dtwex_nowcast_days'] = 0.0
+        raw_dtwex = data.get('dtwex', pd.Series(dtype=float))
+        raw_dxy = data.get('dxy', pd.Series(dtype=float))
+        if 'dtwex' in df and 'dxy' in df and len(raw_dtwex) > 60 and len(raw_dxy) > 60:
+            last_real = raw_dtwex.index[-1]
+            tail_mask = df.index > last_real
+            if tail_mask.any() and raw_dxy.index[-1] > last_real:
+                both = pd.concat([np.log(raw_dtwex).diff(), np.log(raw_dxy).diff()], axis=1).dropna().tail(252)
+                if len(both) >= 40 and both.iloc[:, 1].var() > 0:
+                    beta = float(np.clip(both.iloc[:, 0].cov(both.iloc[:, 1]) / both.iloc[:, 1].var(), 0.2, 1.2))
+                    dxy_ret = np.log(df['dxy']).diff().where(tail_mask, 0.0).fillna(0.0)
+                    path = float(raw_dtwex.iloc[-1]) * np.exp((beta * dxy_ret).cumsum())
+                    df.loc[tail_mask, 'dtwex'] = path[tail_mask]
+                    features.loc[tail_mask, 'dtwex_nowcast_days'] = np.arange(1, int(tail_mask.sum()) + 1, dtype=float)
         
         # 1. Regime 1 Indicators
         if 'oil' in df:
@@ -1238,6 +1262,18 @@ class MacroEventInterpretationSystem:
                         confirmed_ids[idx] = current_confirmed
                         in_transition[idx] = False
                     else:
+                        # FIX v2.4: the previously confirmed regime is NOT
+                        # being evidenced today either (a different candidate
+                        # is). Its fallback clock must keep running; before,
+                        # it only ran on candidate==0 days, so a flickering
+                        # 0/5/0/5 sequence kept an old shock regime
+                        # "confirmed" indefinitely (25+ days in tests vs the
+                        # documented 10-day retention).
+                        if current_confirmed != 0:
+                            fallback_timer -= 1
+                            if fallback_timer <= 0:
+                                current_confirmed = 0
+                                fallback_timer = 0
                         confirmed_ids[idx] = current_confirmed
                         in_transition[idx] = True
                         
