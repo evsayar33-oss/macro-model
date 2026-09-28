@@ -213,6 +213,8 @@ def run_validation(data: Dict[str, pd.Series], years: int = 10, step: int = 5) -
     weights_rows: List[Dict[str, float]] = []
     mindd_rows: List[Dict[str, float]] = []
     factor_rows: List[Dict[str, float]] = []
+    strat_rows: Dict[str, List[Dict[str, float]]] = {}
+    strat_cache: Dict[str, object] = {}
     from regime_portfolio import active_target_weights, compute_regime_portfolios
     regime_ports = None
     t0 = time.time()
@@ -243,6 +245,17 @@ def run_validation(data: Dict[str, pd.Series], years: int = 10, step: int = 5) -
         if regime_ports is not None:
             mindd_rows.append({"date": t, **active_target_weights(
                 regime_ports, conf, cand, tr, structural.get("portfolio_risk_budget", 0.5))})
+        # v2.6: every candidate portfolio strategy, out-of-sample
+        from regime_portfolio import STRATEGY_LABELS, strategy_weights
+        if i % max(1, 60 // step) == 0:
+            strat_cache = {}          # regime strategies re-optimised ~quarterly
+        for sname in STRATEGY_LABELS:
+            try:
+                sw = strategy_weights(sname, prices, results["confirmed_regime_id"][results.index <= t],
+                                      conf, cand, tr, as_of=t, regime_cache=strat_cache)
+                strat_rows.setdefault(sname, []).append({"date": t, **sw})
+            except Exception:
+                pass
         for asset, st in scan.items():
             s = pr.get(asset)
             if s is None or len(s) < 260:
@@ -269,7 +282,8 @@ def run_validation(data: Dict[str, pd.Series], years: int = 10, step: int = 5) -
     wts = pd.DataFrame(weights_rows).set_index("date") if weights_rows else pd.DataFrame()
     mindd = pd.DataFrame(mindd_rows).set_index("date") if mindd_rows else pd.DataFrame()
     factors = pd.DataFrame(factor_rows).set_index("date") if factor_rows else pd.DataFrame()
-    return {"signals": sig, "weights": wts, "mindd_weights": mindd, "factors": factors,
+    strategies = {k: pd.DataFrame(v).set_index("date") for k, v in strat_rows.items() if v}
+    return {"signals": sig, "weights": wts, "mindd_weights": mindd, "factors": factors, "strategies": strategies,
             "results": results, "prices": px, "step": step}
 
 
@@ -443,6 +457,55 @@ def _factor_ic_block(sig: pd.DataFrame, factors: pd.DataFrame, step: int) -> Lis
     return L
 
 
+def _perf(r: pd.Series) -> Dict[str, float]:
+    cum = (1 + r).cumprod()
+    yrs = len(r) / 252.0
+    cagr = float(cum.iloc[-1] ** (1 / yrs) - 1) if yrs > 0 else 0.0
+    vol = float(r.std() * math.sqrt(252))
+    dd = float((cum / cum.cummax() - 1).min())
+    return {"cagr": cagr, "vol": vol, "sharpe": cagr / vol if vol > 0 else 0.0, "max_dd": dd,
+            "calmar": cagr / abs(dd) if dd < 0 else None}
+
+
+def _strategy_block(out: Dict[str, object], json_path: str) -> List[str]:
+    from regime_portfolio import STRATEGY_LABELS
+    strategies: Dict[str, pd.DataFrame] = out.get("strategies") or {}  # type: ignore
+    px: pd.DataFrame = out["prices"]  # type: ignore
+    L = ["## 7) PORTFÖY STRATEJİSİ YARIŞI (örneklem dışı) — canlı hedef buradan seçilir",
+         "Her strateji her hafta YALNIZCA o güne kadarki veriyle ağırlık üretir, ertesi gün uygulanır "
+         "(5 bps işlem maliyeti). Calmar = yıllık getiri / |maks. düşüş|. Canlı 🎯 Hedef Portföy sayfası "
+         "**en yüksek Calmar**'a sahip stratejiyi kullanır.", "",
+         "| Strateji | Yıllık getiri | Volatilite | Sharpe | Maks. düşüş | Calmar | Ort. nakit |", "|---|---|---|---|---|---|---|"]
+    if not strategies:
+        return L + ["| — | — | — | — | — | — | — |", ""]
+    rets = px.pct_change().fillna(0.0)
+    scores = {}
+    first = max(df.index[0] for df in strategies.values())
+    for name, df in strategies.items():
+        r = _strategy_returns(df, rets); r = r[r.index > first]
+        p = _perf(r); p["avg_cash"] = float(df.get("Nakit / Likit Rezerv", pd.Series([0.0])).mean())
+        scores[name] = p
+    eq = rets[[c for c in rets.columns]].mean(axis=1); eq = eq[eq.index > first]
+    scores_eq = _perf(eq)
+    best = max((k for k in scores if scores[k]["calmar"] is not None), key=lambda k: scores[k]["calmar"], default=None)
+    for name, p in sorted(scores.items(), key=lambda kv: -(kv[1]["calmar"] or -9)):
+        tag = " 🏆 **CANLI SEÇİM**" if name == best else ""
+        L.append(f"| {STRATEGY_LABELS.get(name, name)}{tag} | %{p['cagr']*100:+.1f} | %{p['vol']*100:.1f} | {p['sharpe']:.2f} | "
+                 f"%{p['max_dd']*100:.1f} | {p['calmar']:.2f} | %{p['avg_cash']:.0f} |" if p['calmar'] is not None else
+                 f"| {STRATEGY_LABELS.get(name, name)} | — | — | — | — | — | — |")
+    L.append(f"| Eşit ağırlık 8 varlık (referans) | %{scores_eq['cagr']*100:+.1f} | %{scores_eq['vol']*100:.1f} | "
+             f"{scores_eq['sharpe']:.2f} | %{scores_eq['max_dd']*100:.1f} | {scores_eq['calmar'] or 0:.2f} | %0 |")
+    L.append("")
+    try:
+        os.makedirs(os.path.dirname(json_path) or ".", exist_ok=True)
+        with open(json_path, "w", encoding="utf-8") as fh:
+            json.dump({"generated_at": pd.Timestamp.now(tz="UTC").isoformat(), "selected": best,
+                       "strategies": scores, "equal_weight": scores_eq}, fh, ensure_ascii=False, indent=1)
+    except Exception:
+        pass
+    return L
+
+
 def write_report(out: Dict[str, object], path: str) -> None:
     sig: pd.DataFrame = out["signals"]  # type: ignore
     results: pd.DataFrame = out["results"]  # type: ignore
@@ -462,6 +525,7 @@ def write_report(out: Dict[str, object], path: str) -> None:
         L += _regime_onset_block(results, px)
         L += _portfolio_block(wts, px, out.get("mindd_weights"))  # type: ignore
         L += _factor_ic_block(sig, out.get("factors"), int(out["step"]))  # type: ignore
+        L += _strategy_block(out, os.path.join(os.path.dirname(path) or ".", "strategy_scores.json"))
     L += ["## Sınırlar",
           "- FRED değerleri güncel vintage (piyasa serileri nadiren revize edilir; ICSA/NFCI küçük revizyonlar alabilir).",
           "- ^MOVE ve BDRY gibi serilerin Yahoo geçmişi kısa olabilir; eksik günlerde motorun kendi geri dönüşleri çalışır.",

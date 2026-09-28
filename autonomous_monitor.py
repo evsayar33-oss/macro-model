@@ -358,8 +358,10 @@ try:
         "Bakır (HG)": yf_data["hg"], "ABD Tahvili / Faiz (TLT)": yf_data["tlt"],
     }
     _ports = compute_regime_portfolios(results["confirmed_regime_id"], _prices, lookback_days=2500)
-    target_portfolio_weights = active_target_weights(
-        _ports, final_id, candidate_id, in_transition, structural.get("portfolio_risk_budget", 0.50)
+    from regime_portfolio import selected_strategy, strategy_weights
+    _strategy = selected_strategy()
+    target_portfolio_weights = strategy_weights(
+        _strategy, _prices, results["confirmed_regime_id"], final_id, candidate_id, in_transition
     )
     regime_portfolio_summary = {
         str(rid): {"weights": p["weights"], "trust": p["trust"], "stats": p["stats"], "ew_stats": p["ew_stats"]}
@@ -434,6 +436,7 @@ current_state = {
     "asset_allocation_snapshot": asset_snapshot,
     "asset_signals": asset_signals,
     "regime_min_drawdown_portfolios": regime_portfolio_summary,
+    "portfolio_strategy": locals().get("_strategy"),
     "factor_scores": factor_scores_snapshot,
 }
 

@@ -1,3 +1,46 @@
+# 2026-09-28 — v2.6: TLT/reel faiz düzeltmesi, sinyalde "dipten al", portföy strateji yarışı
+
+## 1) Tahvil (TLT) neden hâlâ SAT diyordu — düzeltildi
+- "Reel Faiz İndirgeme İVMESİ" adına rağmen reel faizin SEVİYESİNİ ölçüyordu. Artık
+  adının söylediğini ölçüyor: 60 günlük DEĞİŞİM (düşen reel faiz = olumlu). Yükselmesi
+  durmuş yüksek bir reel faiz artık "baskı" sayılmıyor.
+- TLT'ye ayrı bir DEĞERLEME/TAŞIMA faktörü eklendi: reel faiz seviyesi yüksek = tahvil
+  ucuz ve yüksek getirili = TLT için OLUMLU (ağırlığı reel faiz faktörüyle eşit).
+- Makro bileşen doygunluğu giderildi: tanh ölçeği 0.18 → 0.45 (canlı TLT'de ham −0.55
+  → −0.996'ya sıkışıyordu; bileşen fiilen sadece işaretti).
+- Piyasa bileşenindeki "1 yıllık zirveye yakınlık" terimi (%30) ters çevrildi: artık
+  zirveden uzak = olumlu (değer). 10 yıllık doğrulamada bu terim tüm varlıklarda
+  zirvede AL / dipte SAT davranışı üretiyordu (korelasyon +0.34…+0.72) ve 1y
+  diplerinden sonraki getiriler SPX/NQ/TLT/WTI/HG'de zirvelerden sonrakinden iyiydi.
+- Uygulama, izleyici ve doğrulama bunun için tek motoru kullanıyor
+  (`compute_factor_scores` + `compute_all_asset_signals`).
+
+## 2) Daha iyi portföy stratejileri — örneklem dışı yarış, kazanan canlı olur
+Min-drawdown portföyü + yapısal risk bütçesi (ortalama %56 nakit) düşük düşüş ama zayıf
+getiri veriyordu. `regime_portfolio.py`'ye 4 kurumsal strateji eklendi; hepsi %10 yıllık
+volatilite hedefiyle ölçeklenir (kaldıraç yok, kalan nakit):
+1. **Risk paritesi + vol hedefi** — her varlık eşit risk taşır; düşeni alarak dengeler
+   (yapısal "dipten al").
+2. **Risk paritesi + 200 günlük trend filtresi** — trend altındaki varlık nakde.
+3. **Rejim Calmar** — her rejimde, o rejimin geçmişinde maks. düşüşü %10'u aşmayan
+   portföyler içinde en yüksek getirili olan.
+4. **Rejim minimum drawdown** (önceki yöntem).
+- `historical_validation.py` Bölüm 7: dördü de her hafta yalnızca o güne kadarki veriyle
+  (rejim stratejileri çeyreklik yeniden optimize) ertesi gün uygulanarak yarışır.
+  Sonuç `validation_reports/strategy_scores.json`'a yazılır.
+- 🎯 Hedef Portföy sayfası ve otonom izleyici, **en yüksek örneklem dışı Calmar**'a
+  (yıllık getiri / |maks. düşüş|) sahip stratejiyi otomatik kullanır. Her yeni
+  doğrulama çalışmasında seçim güncellenir (kendini geliştiren seçim). Doğrulama
+  sonucu yokken varsayılan: risk paritesi + vol hedefi.
+- Sayfada: strateji yarış tablosu, tüm stratejilerin güncel ağırlıkları, aktif hedef.
+
+## Test
+- 10/10 test (yeni: tüm stratejiler %100'e tamamlanır ve kaldıraçsız; yüksek-ama-sabit
+  reel faiz TLT için olumlu ve momentum cezası yok).
+- Ana sayfa, Hedef Portföy sayfası, izleyici ve doğrulama sahte veriyle baştan sona çalıştı.
+
+---
+
 # 2026-09-28 — v2.5: Canlı yenile butonu, ayrı "🎯 Hedef Portföy" sayfası (rejim bazlı minimum drawdown)
 
 ## 1) 🔄 Canlı Verileri Yenile

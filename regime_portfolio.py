@@ -197,3 +197,166 @@ def active_target_weights(
     out = {a: float(w.get(a, 0.0) * budget * 100.0) for a in assets}
     out[CASH_KEY] = float(100.0 - sum(out.values()))
     return out
+
+
+# ======================================================================
+# v2.6 — PORTFOLIO STRATEGY SET (evaluated out-of-sample, best one is live)
+# ======================================================================
+# Why: min-drawdown with a weak return floor, then scaled by the structural
+# risk budget (avg ~56% cash), gives low drawdowns but weak returns. The
+# strategies below are standard institutional answers to "better return per
+# unit of drawdown". Every one of them is back-tested OUT-OF-SAMPLE in
+# historical_validation.py; the live page uses the one with the best
+# out-of-sample Calmar ratio (CAGR / |MaxDD|) from the latest report.
+
+import json as _json
+import os as _os
+
+TARGET_VOL = 0.10            # annual portfolio volatility target
+VOL_LOOKBACK = 60            # days for volatility / covariance
+TREND_LOOKBACK = 200         # days for the trend filter
+REGIME_DD_LIMIT = 0.10       # max drawdown allowed on a regime path (Calmar strategy)
+STRATEGY_FILE = _os.path.join("validation_reports", "strategy_scores.json")
+
+STRATEGY_LABELS = {
+    "regime_calmar": "Rejim Calmar (rejimde maks. getiri, maks. DD ≤ %10) + vol hedefi",
+    "risk_parity_vt": "Risk paritesi + %10 volatilite hedefi (düşeni alarak dengeler)",
+    "risk_parity_trend": "Risk paritesi + 200g trend filtresi + %10 vol hedefi",
+    "regime_min_dd": "Rejim minimum drawdown + %10 vol hedefi",
+}
+DEFAULT_STRATEGY = "risk_parity_vt"
+
+
+def optimise_max_return_dd_limit(returns: pd.DataFrame, dd_limit: float = REGIME_DD_LIMIT,
+                                 cap: float = DEFAULT_CAP) -> Optional[np.ndarray]:
+    """Maximise mean return subject to MaxDD(path) <= dd_limit (LP, uncompounded)."""
+    from scipy.optimize import linprog
+    from scipy.sparse import lil_matrix
+    R = returns.to_numpy(dtype=float)
+    T, n = R.shape
+    if T < 20 or n == 0:
+        return None
+    C = np.cumsum(R, axis=0)
+    nv = n + T
+    cost = np.zeros(nv); cost[:n] = -R.mean(axis=0)
+    A = lil_matrix((3 * T, nv)); b = np.zeros(3 * T); r = 0
+    for t in range(T):
+        A[r, :n] = C[t]; A[r, n + t] = -1.0; r += 1                     # u_t >= C_t w
+        if t > 0:
+            A[r, n + t - 1] = 1.0; A[r, n + t] = -1.0; r += 1           # u_t >= u_{t-1}
+        A[r, n + t] = 1.0; A[r, :n] = -C[t]; b[r] = dd_limit; r += 1     # u_t - C_t w <= limit
+    A_eq = np.zeros((1, nv)); A_eq[0, :n] = 1.0
+    bounds = [(0.0, cap)] * n + [(0.0, None)] * T
+    res = linprog(cost, A_ub=A[:r].tocsr(), b_ub=b[:r], A_eq=A_eq, b_eq=[1.0], bounds=bounds, method="highs")
+    if not res.success:
+        return None
+    w = np.clip(res.x[:n], 0, None)
+    return w / w.sum() if w.sum() > 0 else None
+
+
+def _clean_prices(asset_prices: Dict[str, pd.Series], as_of=None, lookback_days: int = 2500) -> pd.DataFrame:
+    px = pd.DataFrame({a: s for a, s in asset_prices.items() if s is not None and len(s) > 30}).sort_index()
+    px.index = pd.to_datetime(px.index)
+    if getattr(px.index, "tz", None) is not None:
+        px.index = px.index.tz_localize(None)
+    px = px.resample("B").last().ffill()
+    if as_of is not None:
+        px = px[px.index <= pd.Timestamp(as_of)]
+    return px[px.index >= px.index.max() - pd.Timedelta(days=lookback_days)]
+
+
+def _vol_target_scale(weights: np.ndarray, rets: pd.DataFrame, target: float = TARGET_VOL) -> float:
+    cov = rets.tail(VOL_LOOKBACK).cov().to_numpy() * 252
+    vol = float(np.sqrt(max(weights @ cov @ weights, 1e-12)))
+    return float(np.clip(target / vol, 0.0, 1.0))      # never levered, rest = cash
+
+
+def _inverse_vol(rets: pd.DataFrame, cap: float = DEFAULT_CAP) -> np.ndarray:
+    vol = rets.tail(VOL_LOOKBACK).std().to_numpy() * np.sqrt(252)
+    inv = 1.0 / np.maximum(vol, 1e-4)
+    w = inv / inv.sum()
+    for _ in range(10):                                   # enforce cap, redistribute
+        over = w > cap
+        if not over.any():
+            break
+        excess = (w[over] - cap).sum(); w[over] = cap
+        w[~over] += excess * w[~over] / w[~over].sum()
+    return w
+
+
+def strategy_weights(strategy: str, asset_prices: Dict[str, pd.Series], confirmed_regime: Optional[pd.Series] = None,
+                     confirmed_id: int = 0, candidate_id: int = 0, in_transition: bool = False,
+                     as_of=None, regime_cache: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
+    """Target weights in percent (incl. cash) for one strategy, using data <= as_of only."""
+    px = _clean_prices(asset_prices, as_of)
+    rets = px.pct_change().dropna(how="all").fillna(0.0).clip(-0.5, 0.5)
+    assets = list(px.columns)
+    if len(rets) < TREND_LOOKBACK:
+        return {CASH_KEY: 100.0}
+    if strategy in ("risk_parity_vt", "risk_parity_trend"):
+        w = _inverse_vol(rets)
+        if strategy == "risk_parity_trend":
+            above = (px.iloc[-1] > px.tail(TREND_LOOKBACK).mean()).to_numpy()
+            w = np.where(above, w, 0.0)                  # filtered-out share goes to cash
+        base = w
+    else:
+        cache = regime_cache if regime_cache is not None else {}
+        key = f"{strategy}"
+        if key not in cache:
+            if strategy == "regime_min_dd":
+                cache[key] = compute_regime_portfolios(confirmed_regime, asset_prices, as_of=as_of)
+            else:
+                cache[key] = compute_regime_calmar_portfolios(confirmed_regime, asset_prices, as_of=as_of)
+        ports = cache[key]["portfolios"]
+        wd = dict((ports.get(int(confirmed_id)) or ports.get(0) or {"weights": {a: 1 / len(assets) for a in assets}})["weights"])
+        if in_transition and candidate_id != confirmed_id and int(candidate_id) in ports:
+            cw = ports[int(candidate_id)]["weights"]
+            wd = {a: 0.6 * wd.get(a, 0) + 0.4 * cw.get(a, 0) for a in assets}
+        base = np.array([wd.get(a, 0.0) for a in assets])
+    scale = _vol_target_scale(base, rets) if base.sum() > 0 else 0.0
+    out = {a: float(base[i] * scale * 100.0) for i, a in enumerate(assets)}
+    out[CASH_KEY] = float(100.0 - sum(out.values()))
+    return out
+
+
+def compute_regime_calmar_portfolios(confirmed_regime: pd.Series, asset_prices: Dict[str, pd.Series],
+                                     lookback_days: int = 2500, cap: float = DEFAULT_CAP, as_of=None) -> Dict[str, Any]:
+    """Per regime: maximum return subject to MaxDD <= REGIME_DD_LIMIT on that regime's path;
+    falls back to the min-drawdown portfolio when the limit is infeasible."""
+    base = compute_regime_portfolios(confirmed_regime, asset_prices, lookback_days, cap, as_of=as_of)
+    px = _clean_prices(asset_prices, as_of, lookback_days)
+    rets = px.pct_change().dropna(how="all").fillna(0.0).clip(-0.5, 0.5)
+    reg = confirmed_regime.copy(); reg.index = pd.to_datetime(reg.index)
+    reg = reg.reindex(rets.index, method="ffill").fillna(0).astype(int).shift(1).fillna(0).astype(int)
+    assets = list(rets.columns)
+    w_all = optimise_max_return_dd_limit(rets, dd_limit=0.25, cap=cap)
+    for rid, p in base["portfolios"].items():
+        sub = rets[reg == rid]
+        w = optimise_max_return_dd_limit(sub, cap=cap) if len(sub) >= 60 else None
+        if w is None:
+            w = w_all if (w_all is not None and len(sub) < 60) else np.array([p["weights"][a] for a in assets])
+        trust = min(1.0, len(sub) / MIN_REGIME_DAYS)
+        if w_all is not None:
+            w = trust * w + (1 - trust) * w_all
+        p["weights"] = dict(zip(assets, map(float, w / w.sum())))
+        if len(sub):
+            p["stats"] = _stats(sub @ (w / w.sum()), DEFAULT_ALPHA)
+    return base
+
+
+def load_strategy_scores(path: str = STRATEGY_FILE) -> Dict[str, Any]:
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return _json.load(fh)
+    except Exception:
+        return {}
+
+
+def selected_strategy(path: str = STRATEGY_FILE) -> str:
+    """Best out-of-sample Calmar from the latest validation run (self-improving
+    selection); DEFAULT_STRATEGY until a validation run has produced scores."""
+    scores = load_strategy_scores(path).get("strategies", {})
+    valid = {k: v for k, v in scores.items() if k in STRATEGY_LABELS and v.get("calmar") is not None}
+    if not valid:
+        return DEFAULT_STRATEGY
+    return max(valid, key=lambda k: valid[k]["calmar"])

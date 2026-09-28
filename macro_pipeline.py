@@ -153,22 +153,42 @@ def get_regime_portfolios() -> Dict[str, Any]:
     return compute_regime_portfolios(hist['confirmed_regime_id'], fetch_asset_prices())
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def get_all_strategy_targets(confirmed: int, candidate: int, in_transition: bool) -> Dict[str, Dict[str, float]]:
+    from regime_portfolio import STRATEGY_LABELS, strategy_weights
+    hist = run_regime_history()
+    prices = fetch_asset_prices()
+    cache: Dict[str, Any] = {}
+    out = {}
+    for name in STRATEGY_LABELS:
+        try:
+            out[name] = strategy_weights(name, prices, hist['confirmed_regime_id'], confirmed, candidate,
+                                         in_transition, regime_cache=cache)
+        except Exception:
+            pass
+    return out
+
+
 def get_live_target() -> Dict[str, Any]:
-    """Active regime + structural risk budget + min-drawdown target weights."""
+    """Active regime + every strategy's current weights; the live target is the
+    strategy with the best OUT-OF-SAMPLE Calmar in the latest validation run."""
     from macro_event_interpretation import compute_structural_risk_state
-    from regime_portfolio import active_target_weights
+    from regime_portfolio import load_strategy_scores, selected_strategy
     hist = run_regime_history()
     if hist.empty:
         return {"available": False}
     last = hist.iloc[-1]
     structural = compute_structural_risk_state(last)
-    ports = get_regime_portfolios()
     conf, cand, tr = int(last['confirmed_regime_id']), int(last['candidate_regime_id']), bool(last['in_transition'])
+    all_targets = get_all_strategy_targets(conf, cand, tr)
+    chosen = selected_strategy()
+    if chosen not in all_targets and all_targets:
+        chosen = next(iter(all_targets))
     return {
         "available": True, "confirmed": conf, "candidate": cand, "in_transition": tr,
-        "structural": structural, "portfolios": ports,
-        "target": active_target_weights(ports, conf, cand, tr, structural.get('portfolio_risk_budget', 0.5)),
-        "as_of": str(hist.index[-1].date()),
+        "structural": structural, "portfolios": get_regime_portfolios(),
+        "strategy": chosen, "all_targets": all_targets, "strategy_scores": load_strategy_scores(),
+        "target": all_targets.get(chosen, {}), "as_of": str(hist.index[-1].date()),
     }
 
 

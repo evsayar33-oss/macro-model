@@ -185,6 +185,8 @@ ASSET_SIGNAL_POLARITY = {
         "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": -0.4,
         "Öncü İstihdam (ICSA)": -0.2,
         "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.3,
+        # v2.6: bond valuation/carry -- high real yield = cheap bonds (+)
+        "Reel Faiz Seviyesi / Tahvil Taşıma Getirisi (TLT değerleme)": 1.0,
     },
 }
 
@@ -1353,9 +1355,18 @@ def compute_asset_signal_state(asset_name: str, factor_scores: Dict[str,float], 
     contributions={}; macro_raw=0.0
     for ind,w in factor_weights.items():
         z=_safe_float(factor_scores.get(ind,0.0)); sign=float(polarity.get(ind,0.0)); c=z*float(w)*sign; contributions[ind]=float(c); macro_raw+=c
-    macro_component=float(np.tanh(macro_raw/0.18))
+    # v2.6: scale 0.18 -> 0.45. With weights summing to 1 and |z|<=2.5, a
+    # typical macro_raw of 0.3-0.6 was pushed to tanh(>=1.7) ~ +-0.95..1.0,
+    # i.e. the macro component was effectively just its SIGN (live TLT: raw
+    # -0.55 -> -0.996). The wider scale keeps it graded.
+    macro_component=float(np.tanh(macro_raw/0.45))
     market=compute_asset_market_confirmation(price_series)
-    market_component=float(np.clip(0.70*market["trend_score"]+0.30*market["high_proximity"],-1,1))
+    # v2.6: the 30% "closeness to the 1-year HIGH" term rewarded buying near
+    # tops and selling near bottoms. 10-year real-data validation: score vs
+    # 1y-range position correlation +0.34..+0.72 on every asset, and 60-day
+    # returns after 1y LOWS beat those after highs for SPX/NQ/TLT/WTI/HG.
+    # It is now a value term: far BELOW the 1y high = positive.
+    market_component=float(np.clip(0.70*market["trend_score"]-0.30*market["high_proximity"],-1,1))
     strategic=float(np.clip(structural_state.get('strategic_risk_score',0.5),0,1)); tactical=float(np.clip(structural_state.get('tactical_risk_score',0.5),0,1)); rotation=float(np.clip(structural_state.get('risk_rotation_20',0.5),0,1)); tight=float(np.clip(structural_state.get('tightening_score',0.5),0,1)); stress=float(np.clip(structural_state.get('defensive_stress_score',0.5),0,1))
     if asset_name in PORTFOLIO_HIGH_BETA_ASSETS:
         structure=0.45*(tactical-0.5)*2+0.25*(strategic-0.5)*2+0.20*(rotation-0.5)*2-0.10*(tight-0.5)*2-0.20*(stress-0.25)

@@ -176,13 +176,67 @@ def _slice(series: Optional[pd.Series], as_of=None) -> pd.Series:
     return series[series.index <= pd.Timestamp(as_of)]
 
 
+REAL_YIELD_NAME = "Reel Faiz İndirgeme İvmesi (10Y TIPS)"
+REAL_YIELD_VALUE_NAME = "Reel Faiz Seviyesi / Tahvil Taşıma Getirisi (TLT değerleme)"
+
+
+def _real_yield_change_z(s: pd.Series, horizon: int = 60) -> float:
+    """v2.6: the factor is named "İndirgeme İVMESİ" (easing MOMENTUM) but was
+    computed as the LEVEL of real yields vs an anchor. Level and change mean
+    different things: what hurts gold/Nasdaq/bonds is real yields RISING;
+    a high but stable/falling level is not a headwind (for bonds it is the
+    expected return). Now: z-score of the 60-business-day change, sign
+    flipped so FALLING real yields = positive."""
+    s = s.dropna()
+    if len(s) < horizon + 60:
+        return 0.0
+    d = s.diff(horizon).dropna()
+    hist = d.tail(756)
+    sd = float(hist.std())
+    if not np.isfinite(sd) or sd <= 1e-9:
+        return 0.0
+    # scaled by typical size of 60-day moves, NOT de-meaned: after a long
+    # hiking cycle a flat real yield must read ~0, not 'easing'.
+    sd = float(np.sqrt((hist ** 2).mean()))
+    return float(np.clip(-d.iloc[-1] / max(sd, 1e-9), -2.5, 2.5))
+
+
+def _real_yield_level_value_z(s: pd.Series) -> float:
+    """Bond valuation/carry: a HIGH real yield means bonds are cheap and
+    pay more (positive for TLT). Same adaptive anchor the old level logic
+    used (50% theory 1.25%/0.80 + 50% trailing 5 years), sign = high -> +."""
+    s = s.dropna()
+    if len(s) < 30:
+        return 0.0
+    mu, sd = get_adaptive_anchor(s, 1.25, 0.80)
+    return float(np.clip((float(s.iloc[-1]) - mu) / max(sd, 1e-6), -2.5, 2.5))
+
+
 def compute_factor_scores(series_map: Dict[str, pd.Series], as_of=None) -> Dict[str, Dict[str, float]]:
     """Returns {indicator: {"z": score, "value": current}} using only data up to ``as_of``."""
     out = {}
     for name, key, invert in INDICATOR_SPECS:
-        z, val = process_indicator(_slice(series_map.get(key), as_of), name, invert)
+        series = _slice(series_map.get(key), as_of)
+        z, val = process_indicator(series, name, invert)
+        if name == REAL_YIELD_NAME:
+            z = _real_yield_change_z(series)
+            out[REAL_YIELD_VALUE_NAME] = {"z": _real_yield_level_value_z(series), "value": float(val)}
         out[name] = {"z": float(z), "value": float(val)}
     return out
+
+
+# Asset-specific extra factors (weight = share of the asset's real-yield weight)
+EXTRA_ASSET_FACTORS = {
+    "ABD Tahvili / Faiz (TLT)": {REAL_YIELD_VALUE_NAME: 1.0},
+}
+
+
+def asset_factor_weights(asset: str, base_weights: Dict[str, float]) -> Dict[str, float]:
+    w = dict(base_weights)
+    for fac, share in EXTRA_ASSET_FACTORS.get(asset, {}).items():
+        w[fac] = share * float(base_weights.get(REAL_YIELD_NAME, 0.1))
+    tot = sum(w.values()) or 1.0
+    return {k: v / tot for k, v in w.items()}
 
 
 def compute_all_asset_signals(
@@ -205,7 +259,7 @@ def compute_all_asset_signals(
     mults = get_macro_interpretation_asset_multipliers(confirmed_regime_id, subtype)
     out = {}
     for asset in ASSETS:
-        weights = get_dynamic_asset_weights(asset, confirmed_regime_id, regime_probs, in_transition)
+        weights = asset_factor_weights(asset, get_dynamic_asset_weights(asset, confirmed_regime_id, regime_probs, in_transition))
         out[asset] = compute_asset_signal_state(
             asset, factor_scores, weights, _slice(asset_prices.get(asset), as_of),
             structural_state, confirmed_regime_id, mults.get(asset, 1.0),

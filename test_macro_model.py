@@ -99,3 +99,21 @@ def test_active_target_sums_to_100_with_cash():
     out = compute_regime_portfolios(pd.Series(0, idx), prices)
     tgt = active_target_weights(out, 0, 0, False, 0.4)
     assert abs(sum(tgt.values()) - 100) < 1e-6 and abs(tgt[CASH_KEY] - 60) < 1e-6
+
+
+def test_all_strategies_sum_to_100_and_never_lever():
+    from regime_portfolio import STRATEGY_LABELS, strategy_weights, CASH_KEY
+    idx, prices = _toy_prices(n=900)
+    reg = pd.Series(np.repeat([0, 1, 2], 300), idx)
+    for s in STRATEGY_LABELS:
+        w = strategy_weights(s, prices, reg, 1, 1, False)
+        assert abs(sum(w.values()) - 100) < 1e-6 and w[CASH_KEY] >= -1e-6, s
+
+
+def test_tlt_high_real_yield_is_supportive_value_factor():
+    from asset_signal_engine import compute_factor_scores, REAL_YIELD_VALUE_NAME, REAL_YIELD_NAME
+    idx = _bidx(900)
+    s = pd.Series(np.r_[np.linspace(0.5, 2.85, 700), np.full(200, 2.85)], index=idx)  # high but now stable
+    fs = compute_factor_scores({"dfii10": s})
+    assert fs[REAL_YIELD_VALUE_NAME]["z"] > 1.0          # cheap bonds -> positive for TLT
+    assert abs(fs[REAL_YIELD_NAME]["z"]) < 1.0            # no further rise -> no momentum penalty

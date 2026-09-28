@@ -478,19 +478,26 @@ with main_tab2:
     # Önceki sürümde aşağıdaki tablo döngüsü `selected_asset_state`
     # değişkenini, o değişken tanımlanmadan ÖNCE kullanıyordu ->
     # NameError; bu sekme ve sonrasındaki her şey hiç çizilemiyordu.
-    factor_scores = {name: float(process_indicator(data_series, name, invert)[0]) for name, data_series, _w, invert in metrics_spec}
+    # Ortak motor (otonom izleyici + doğrulama ile BİREBİR aynı hesap)
+    from asset_signal_engine import compute_factor_scores, compute_all_asset_signals
+    _factor_series = {
+        "dxy": dxy, "g4_liq": g4_liq, "dfii10": tips_real, "t10yie": t10yie, "t5yifr": t5yifr,
+        "fed_easing_spread": fed_easing_spread, "hy_oas": hy_oas, "move": move, "vix": vix,
+        "t10y2y": t10y2y, "icsa": icsa, "wresbal": wresbal,
+    }
+    _fs_full = compute_factor_scores(_factor_series)
+    factor_scores = {k: v["z"] for k, v in _fs_full.items()}
     asset_price_series = {asset_name: fetch_yf_data(ticker) for asset_name, ticker in ASSET_MARKET_TICKERS.items()}
-    asset_scan = {}
-    for scan_asset, scan_prices in asset_price_series.items():
-        scan_weights = get_dynamic_asset_weights(scan_asset, confirmed_regime_id, regime_probs, macro_in_trans)
-        scan_mult = macro_asset_mults.get(scan_asset, 1.0)
-        asset_scan[scan_asset] = compute_asset_signal_state(scan_asset, factor_scores, scan_weights, scan_prices, structural_state, confirmed_regime_id, scan_mult)
+    asset_scan = compute_all_asset_signals(factor_scores, asset_price_series, structural_state,
+                                           confirmed_regime_id, active_macro_subtype, regime_probs, macro_in_trans)
     asset_signal_scores = {k: float(v['score']) for k,v in asset_scan.items()}
     selected_asset_state = asset_scan.get(asset, {})
 
     for idx, item in enumerate(metrics_spec):
         name, data_series, dyn_weight, invert = item
         z, val = process_indicator(data_series, name, invert)
+        if name in _fs_full:
+            z = _fs_full[name]["z"]
         
         if z >= 0:
             active_mult = blended_multiplier
@@ -532,7 +539,7 @@ with main_tab2:
     scan_rows=[]
     for scan_asset,state in asset_scan.items():
         mk=state.get('market',{})
-        scan_rows.append({"Varlık":scan_asset,"Sinyal":state.get('label','NÖTR'),"Skor":round(float(state.get('score',0)),1),"Güven":f"%{float(state.get('confidence',0))*100:.0f}","5G Z":round(float(mk.get('ret5_z',0)),2),"20G Z":round(float(mk.get('ret20_z',0)),2),"60G Z":round(float(mk.get('ret60_z',0)),2),"Min-DD Hedef Pay":f"%{target_portfolio_weights.get(scan_asset,0):.1f}"})
+        scan_rows.append({"Varlık":scan_asset,"Sinyal":state.get('label','NÖTR'),"Skor":round(float(state.get('score',0)),1),"Güven":f"%{float(state.get('confidence',0))*100:.0f}","5G Z":round(float(mk.get('ret5_z',0)),2),"20G Z":round(float(mk.get('ret20_z',0)),2),"60G Z":round(float(mk.get('ret60_z',0)),2),"Hedef Pay":f"%{target_portfolio_weights.get(scan_asset,0):.1f}"})
     st.dataframe(pd.DataFrame(scan_rows).sort_values('Skor',ascending=False),use_container_width=True,hide_index=True)
 
 
