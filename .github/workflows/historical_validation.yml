@@ -1,0 +1,66 @@
+name: "Macro Model Historical Validation"
+
+# Real-data, point-in-time validation of the live model (historical_validation.py).
+# Start from the phone: GitHub app -> repo -> Actions ->
+# "Macro Model Historical Validation" -> Run workflow. Also refreshes every Sunday.
+
+on:
+  workflow_dispatch:
+    inputs:
+      years:
+        description: "Kaç yıllık geçmiş (en fazla ~10)"
+        required: false
+        default: "10"
+      step:
+        description: "Kaç iş gününde bir değerlendirme (5 = haftalık)"
+        required: false
+        default: "5"
+  schedule:
+    - cron: "23 5 * * 0"
+
+concurrency:
+  group: macro-model-historical-validation
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: "Repository Checkout"
+        uses: actions/checkout@v6
+
+      - name: "Python Setup"
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: "Install Dependencies"
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance requests
+
+      - name: "Run Historical Validation"
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python historical_validation.py \
+            --years "${{ github.event.inputs.years || '10' }}" \
+            --step "${{ github.event.inputs.step || '5' }}" \
+            --out validation_reports
+
+      - name: "Commit Report"
+        run: |
+          git config user.name "macro-model-validation-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add validation_reports
+          if git diff --staged --quiet; then echo "Değişiklik yok."; exit 0; fi
+          git commit -m "chore: historical validation report"
+          for i in 1 2 3; do
+            git pull --rebase --autostash origin main && git push origin HEAD:main && exit 0
+            sleep 5
+          done
+          exit 1
