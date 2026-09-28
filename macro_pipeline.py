@@ -54,7 +54,7 @@ def _fred_csv(series_id: str, start: datetime) -> pd.Series:
     return pd.Series(vals.values, index=pd.to_datetime(df[date_col], errors="coerce")).dropna()
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_fred_data(series_id, days=2500):
     end_date = datetime.today()
     start_date = end_date - timedelta(days=days)
@@ -73,7 +73,7 @@ def fetch_fred_data(series_id, days=2500):
             return pd.Series(dtype=float)
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def fetch_yf_data(ticker, days=2500):
     import yfinance as yf
     end_date = datetime.today()
@@ -134,7 +134,7 @@ def build_macro_input() -> Dict[str, pd.Series]:
     }
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=3 * 3600, show_spinner=False)
 def run_regime_history() -> pd.DataFrame:
     from macro_event_interpretation import MacroEventInterpretationSystem
     return MacroEventInterpretationSystem().evaluate_history(build_macro_input())
@@ -193,7 +193,7 @@ def fetch_asset_prices_long() -> Dict[str, pd.Series]:
     return {a: fetch_yf_long(t) for a, t in ASSET_TICKERS.items()}
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
 def get_cycle_signals() -> Dict[str, Dict[str, Any]]:
     """Long-horizon al-unut / sat-unut state per asset (cycle_engine.py)."""
     from cycle_engine import current_cycle_signal, load_cycle_params
@@ -201,7 +201,7 @@ def get_cycle_signals() -> Dict[str, Dict[str, Any]]:
     return {a: current_cycle_signal(a, s, params.get(a)) for a, s in fetch_asset_prices_long().items()}
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
 def _live_strategy_target(strategy: str, confirmed: int, candidate: int, in_transition: bool) -> Dict[str, float]:
     from regime_portfolio import strategy_weights
     hist = run_regime_history()
@@ -262,4 +262,4 @@ def render_refresh_button() -> None:
     if st.sidebar.button("🔄 Canlı Verileri Yenile", use_container_width=True, type="primary"):
         st.cache_data.clear()
         st.rerun()
-    st.sidebar.caption(f"Veri yüklenme zamanı: {_data_loaded_at()} · otomatik yenileme: 15 dk")
+    st.sidebar.caption(f"Veri yüklenme zamanı: {_data_loaded_at()} · piyasa verisi 30 dk, rejim 3 saat, portföy/döngü 6 saatte bir otomatik yenilenir")
