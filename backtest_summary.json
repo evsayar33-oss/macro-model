@@ -176,7 +176,7 @@
       "daily_audit_history"
     ],
     "current": {
-      "observed_at_utc": "2026-09-28T00:23:16.551617+00:00",
+      "observed_at_utc": "2026-09-28T08:16:35.879289+00:00",
       "observation_date_utc": "2026-09-28",
       "confirmed_regime_id": 1,
       "confirmed_regime_name": "Küresel Enflasyon & Stagflasyon Şoku",
@@ -189,94 +189,94 @@
       "action": "HOLD_PREVIOUS_DURING_TRANSITION",
       "previous_confirmed_regime_id": 1,
       "previous_candidate_regime_id": 0,
-      "continuum_dominant_regime": "REFLASYON",
-      "continuum_regime_title": "REFLASYON (%38 - Emtia/Enflasyon + Risk İştahı)",
+      "continuum_dominant_regime": "STAGFLASYON",
+      "continuum_regime_title": "STAGFLASYON (%38 - Emtia/Enflasyon + Stres)",
       "continuum_probabilities": {
-        "GOLDILOCKS": 0.2772736020923044,
-        "REFLASYON": 0.3830776949302465,
-        "STAGFLASYON": 0.3052365946847911,
-        "DEFLASYON": 0.03441210829265808
+        "GOLDILOCKS": 0.21734374008652035,
+        "REFLASYON": 0.37119055862820194,
+        "STAGFLASYON": 0.3779838743782237,
+        "DEFLASYON": 0.033481826907053994
       },
-      "continuum_deterministic_agreement": false,
+      "continuum_deterministic_agreement": true,
       "continuum_diagnostics": {
         "inflation_pressure": 0.6262112682359106,
-        "commodity_pressure": 0.5336351581592991,
+        "commodity_pressure": 0.5900858009603556,
         "real_rate_pressure": 0.3376803069879202,
-        "systemic_stress": 0.42308504478048187,
-        "growth_health": 0.7311835855062434,
+        "systemic_stress": 0.4515579674788557,
+        "growth_health": 0.7305600809869027,
         "liquidity_health": 0.4661456253115457,
-        "commodity_event_z": 0.19432089157996876,
+        "commodity_event_z": 0.3550240591639109,
         "real_rate_event_z": -0.12155412412059534,
         "stress_event_z": -0.11970838616956439,
-        "structural_risk_appetite_20_z": -0.4000277216230989,
-        "structural_risk_appetite_60_z": 0.21901586923908542,
-        "structural_tightening_20_z": 0.4000277216230989,
-        "structural_tightening_60_z": -0.21901586923908542,
-        "risk_appetite_score": 0.43485950616589053,
-        "tightening_score": 0.6621625142798574,
-        "defensive_stress_score": 0.45516627683543387,
-        "risk_asset_breadth_60": 0.5,
-        "gold_relative_weakness_60_z": 0.0937882005424596,
+        "structural_risk_appetite_20_z": -0.49503479376672405,
+        "structural_risk_appetite_60_z": 0.1399034253310519,
+        "structural_tightening_20_z": 0.49503479376672405,
+        "structural_tightening_60_z": -0.1399034253310519,
+        "risk_appetite_score": 0.4286244609724829,
+        "tightening_score": 0.663851994107143,
+        "defensive_stress_score": 0.4793279524212359,
+        "risk_asset_breadth_60": 0.3333333333333333,
+        "gold_relative_weakness_60_z": 0.27495484016656097,
         "structural_state": "TIGHTENING",
-        "strategic_risk_score": 0.4551989501289905,
-        "tactical_risk_score": 0.4182181429233542,
-        "tactical_risk_on_event_score": 0.31096566773723544,
-        "risk_rotation_5": 0.5026311307461414,
-        "risk_rotation_20": 0.5769141190462533,
+        "strategic_risk_score": 0.4358386242374327,
+        "tactical_risk_score": 0.42272196375570575,
+        "tactical_risk_on_event_score": 0.30899225175756023,
+        "risk_rotation_5": 0.6789310221146646,
+        "risk_rotation_20": 0.6639821721959556,
         "risk_asset_breadth_5": 0.0
       },
       "structural_state": {
         "state": "TIGHTENING",
-        "risk_appetite_score": 0.43485950616589053,
-        "strategic_risk_score": 0.4551989501289905,
-        "tactical_risk_score": 0.4182181429233542,
-        "tactical_risk_on_event_score": 0.31096566773723544,
-        "tightening_score": 0.6621625142798574,
-        "tightening_score_20": 0.7245666781831985,
-        "tightening_score_60": 0.6285602721780583,
-        "defensive_stress_score": 0.45516627683543387,
-        "persistence_score": 0.245862834034204,
-        "alignment_score": 0.8904563778663768,
-        "slow_risk_appetite_20": 0.38399559574213543,
-        "slow_risk_appetite_60": 0.49353921787575866,
-        "fast_risk_appetite": 0.4328849488581623,
+        "risk_appetite_score": 0.4286244609724829,
+        "strategic_risk_score": 0.4358386242374327,
+        "tactical_risk_score": 0.42272196375570575,
+        "tactical_risk_on_event_score": 0.30899225175756023,
+        "tightening_score": 0.663851994107143,
+        "tightening_score_20": 0.7260550237228536,
+        "tightening_score_60": 0.6303580550832989,
+        "defensive_stress_score": 0.4793279524212359,
+        "persistence_score": 0.2604551727263713,
+        "alignment_score": 0.9165966457334191,
+        "slow_risk_appetite_20": 0.3816264439641551,
+        "slow_risk_appetite_60": 0.465029798230736,
+        "fast_risk_appetite": 0.44033432938065603,
         "risk_asset_breadth_5": 0.0,
         "risk_asset_breadth_20": 0.16666666666666666,
-        "risk_asset_breadth_60": 0.5,
-        "risk_rotation_5": 0.5026311307461414,
-        "risk_rotation_20": 0.5769141190462533,
-        "risk_rotation_60": 0.526028727192538,
-        "gold_relative_weakness_5": 0.009472158119182006,
-        "gold_relative_weakness_20": 0.2791064054317926,
-        "gold_relative_weakness_60": 0.0937882005424596,
-        "portfolio_risk_budget": 0.3164552073627504,
-        "cash_target_pct": 68.35447926372495,
-        "confidence": 0.46701446325407425,
+        "risk_asset_breadth_60": 0.3333333333333333,
+        "risk_rotation_5": 0.6789310221146646,
+        "risk_rotation_20": 0.6639821721959556,
+        "risk_rotation_60": 0.5757877974738013,
+        "gold_relative_weakness_5": 0.6739771954632126,
+        "gold_relative_weakness_20": 0.6129819742655491,
+        "gold_relative_weakness_60": 0.27495484016656097,
+        "portfolio_risk_budget": 0.3140137540441072,
+        "cash_target_pct": 68.59862459558927,
+        "confidence": 0.482302557118183,
         "risk_on_streak_days": 0,
         "tightening_streak_days": 3,
         "defensive_streak_days": 0
       },
-      "portfolio_risk_budget_pct": 31.64552073627504,
-      "cash_target_pct": 68.35447926372495,
+      "portfolio_risk_budget_pct": 31.401375404410718,
+      "cash_target_pct": 68.59862459558927,
       "target_portfolio_weights_pct": {
-        "Altın (XAU)": 8.318040229744705,
-        "Gümüş (XAG)": 4.534195087299182,
-        "Ham Petrol (WTI)": 5.1924916044125045,
-        "Bakır (HG)": 3.8758985701858575,
-        "S&P 500 (SPX)": 2.8226241428045395,
-        "Nasdaq 100 (NQ)": 2.6909648393818744,
-        "Kripto (BTC)": 2.55930553595921,
-        "ABD Tahvili / Faiz (TLT)": 1.6520007264871701,
-        "Nakit / Likit Rezerv": 68.35447926372495
+        "Altın (XAU)": 6.620502161900857,
+        "Gümüş (XAG)": 3.36311451823698,
+        "Ham Petrol (WTI)": 7.5391166330803365,
+        "Bakır (HG)": 4.797387296689947,
+        "S&P 500 (SPX)": 2.8185700816981454,
+        "Nasdaq 100 (NQ)": 2.6781729515722197,
+        "Kripto (BTC)": 2.3446433428754743,
+        "ABD Tahvili / Faiz (TLT)": 1.2398684183567634,
+        "Nakit / Likit Rezerv": 68.59862459558927
       },
-      "data_fingerprint": "78f2deeb2bf3b8d6c4eb91cf5ad0eef57b39c335ce2a317ba94a752264eea28e",
+      "data_fingerprint": "0b0329a8dc6da1895684345388dc3a48c0b47af67e3319ea80f995c452ef8c9a",
       "data_freshness": {
-        "as_of": "2026-09-28T00:23:12.863763",
+        "as_of": "2026-09-28T08:16:30.246502",
         "series": {
           "oil": {
             "status": "FRESH",
-            "latest": "2026-09-25T00:00:00",
-            "age_business_days": 1,
+            "latest": "2026-09-28T00:00:00",
+            "age_business_days": 0,
             "max_age_business_days": 3
           },
           "bdi": {
@@ -323,8 +323,8 @@
           },
           "dxy": {
             "status": "FRESH",
-            "latest": "2026-09-25T00:00:00",
-            "age_business_days": 1,
+            "latest": "2026-09-28T00:00:00",
+            "age_business_days": 0,
             "max_age_business_days": 3
           },
           "usdjpy": {
@@ -335,8 +335,8 @@
           },
           "vix": {
             "status": "FRESH",
-            "latest": "2026-09-25T00:00:00",
-            "age_business_days": 1,
+            "latest": "2026-09-28T00:00:00",
+            "age_business_days": 0,
             "max_age_business_days": 3
           },
           "move": {
@@ -371,20 +371,20 @@
           },
           "gold": {
             "status": "FRESH",
-            "latest": "2026-09-25T00:00:00",
-            "age_business_days": 1,
+            "latest": "2026-09-28T00:00:00",
+            "age_business_days": 0,
             "max_age_business_days": 3
           },
           "xag": {
             "status": "FRESH",
-            "latest": "2026-09-25T00:00:00",
-            "age_business_days": 1,
+            "latest": "2026-09-28T00:00:00",
+            "age_business_days": 0,
             "max_age_business_days": 3
           },
           "hg": {
             "status": "FRESH",
-            "latest": "2026-09-25T00:00:00",
-            "age_business_days": 1,
+            "latest": "2026-09-28T00:00:00",
+            "age_business_days": 0,
             "max_age_business_days": 3
           },
           "dbb": {
@@ -427,7 +427,7 @@
       "circuit_breaker_triggered": false,
       "circuit_breaker_reasons": [],
       "data_health": {
-        "contract_schema_version": "2.3",
+        "contract_schema_version": "2.4",
         "contract_key_count": 24,
         "critical_key_count": 9,
         "critical_missing_series": [],
@@ -436,7 +436,7 @@
         "evaluated_rows": 3323,
         "latest_feature_date": "2026-09-28 00:00:00",
         "latest_source_observation_by_series": {
-          "oil": "2026-09-25T00:00:00",
+          "oil": "2026-09-28T00:00:00",
           "bdi": "2026-09-25T00:00:00",
           "hy_oas": "2026-09-24T00:00:00",
           "ig_oas": "2026-09-24T00:00:00",
@@ -444,17 +444,17 @@
           "ust10y": "2026-09-24T00:00:00",
           "ust2y": "2026-09-24T00:00:00",
           "dtwex": "2026-09-18T00:00:00",
-          "dxy": "2026-09-25T00:00:00",
+          "dxy": "2026-09-28T00:00:00",
           "usdjpy": "2026-09-28T00:00:00",
-          "vix": "2026-09-25T00:00:00",
+          "vix": "2026-09-28T00:00:00",
           "move": "2026-09-25T00:00:00",
           "btc": "2026-09-28T00:00:00",
           "dfii10": "2026-09-24T00:00:00",
           "t10yie": "2026-09-25T00:00:00",
           "ndl": "2026-09-25T00:00:00",
-          "gold": "2026-09-25T00:00:00",
-          "xag": "2026-09-25T00:00:00",
-          "hg": "2026-09-25T00:00:00",
+          "gold": "2026-09-28T00:00:00",
+          "xag": "2026-09-28T00:00:00",
+          "hg": "2026-09-28T00:00:00",
           "dbb": "2026-09-25T00:00:00",
           "nfci": "2026-09-18T00:00:00",
           "icsa": "2026-09-18T00:00:00",
@@ -469,186 +469,302 @@
         "Altın (XAU)": {
           "macro_exposure_multiplier_raw": 1.25,
           "macro_exposure_multiplier_effective": 1.25,
-          "structural_asset_tilt": 0.9608893227469701,
-          "target_portfolio_weight_pct": 8.318040229744705,
+          "structural_asset_tilt": 0.9376111266454019,
+          "target_portfolio_weight_pct": 6.620502161900857,
           "structural_state": "TIGHTENING",
-          "portfolio_risk_budget_pct": 31.64552073627504,
-          "cash_target_pct": 68.35447926372495,
+          "portfolio_risk_budget_pct": 31.401375404410718,
+          "cash_target_pct": 68.59862459558927,
           "indicator_weights": {
-            "Dolar Endeksi Zayıflığı (DXY)": 0.1622929432405769,
-            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.1307915928017442,
-            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.14675789990820767,
-            "10Y Breakeven Enflasyon İvmesi": 0.19531407419062133,
-            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.15452876236062318,
-            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.05556414238789231,
-            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.04792174492942501,
-            "MOVE Endeksi (Tahvil Volatilitesi)": 0.05275748314532307,
-            "VIX Endeksi (Hisse Volatilitesi)": 0.022092804598336534,
-            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.013239276218624968,
-            "Öncü İstihdam (ICSA)": 0.009464271407117295,
-            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.009275004811507677
+            "Dolar Endeksi Zayıflığı (DXY)": 0.16165418094899653,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.12842163185758582,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.14632948913906405,
+            "10Y Breakeven Enflasyon İvmesi": 0.19855108976830843,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.15722707486032753,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.05486398152486209,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.04802180414302255,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.05253304466550962,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.021747840714442253,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.012574931188940519,
+            "Öncü İstihdam (ICSA)": 0.009129540618464658,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.008945390570475864
           }
         },
         "Gümüş (XAG)": {
           "macro_exposure_multiplier_raw": 1.1,
-          "macro_exposure_multiplier_effective": 1.0616544655530165,
-          "structural_asset_tilt": 0.6167077063062634,
-          "target_portfolio_weight_pct": 4.534195087299182,
+          "macro_exposure_multiplier_effective": 1.0620099722866394,
+          "structural_asset_tilt": 0.622457821877144,
+          "target_portfolio_weight_pct": 3.36311451823698,
           "structural_state": "TIGHTENING",
-          "portfolio_risk_budget_pct": 31.64552073627504,
-          "cash_target_pct": 68.35447926372495,
+          "portfolio_risk_budget_pct": 31.401375404410718,
+          "cash_target_pct": 68.59862459558927,
           "indicator_weights": {
-            "Dolar Endeksi Zayıflığı (DXY)": 0.16612826469359032,
-            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.146676923877773,
-            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.12675789990820763,
-            "10Y Breakeven Enflasyon İvmesi": 0.214935540999402,
-            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.15031490771639044,
-            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.025907205442760598,
-            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.039300278120644246,
-            "MOVE Endeksi (Tahvil Volatilitesi)": 0.03997175455244035,
-            "VIX Endeksi (Hisse Volatilitesi)": 0.011521605869102884,
-            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.008564271407117293,
-            "Öncü İstihdam (ICSA)": 0.06180707600545382,
-            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.008114271407117294
+            "Dolar Endeksi Zayıflığı (DXY)": 0.16536897699792918,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.1435272090474702,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.12632948913906408,
+            "10Y Breakeven Enflasyon İvmesi": 0.21818278967233085,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.15314397871541735,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.025931652311455264,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.03939010423900016,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.03941258528397429,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.011576752023522485,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.00822954061846466,
+            "Öncü İstihdam (ICSA)": 0.06112738133290692,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.00777954061846466
           }
         },
         "Nasdaq 100 (NQ)": {
           "macro_exposure_multiplier_raw": 0.4,
-          "macro_exposure_multiplier_effective": 0.6300732066819021,
-          "structural_asset_tilt": 0.6167077063062634,
-          "target_portfolio_weight_pct": 2.6909648393818744,
+          "macro_exposure_multiplier_effective": 0.6279401662801649,
+          "structural_asset_tilt": 0.622457821877144,
+          "target_portfolio_weight_pct": 2.6781729515722197,
           "structural_state": "TIGHTENING",
-          "portfolio_risk_budget_pct": 31.64552073627504,
-          "cash_target_pct": 68.35447926372495,
+          "portfolio_risk_budget_pct": 31.401375404410718,
+          "cash_target_pct": 68.59862459558927,
           "indicator_weights": {
-            "Dolar Endeksi Zayıflığı (DXY)": 0.07867064290602696,
-            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.08853400950624218,
-            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.21062230033454993,
-            "10Y Breakeven Enflasyon İvmesi": 0.10235676901576354,
-            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.023071457185765417,
-            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.14659322136122113,
-            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.0982793474709577,
-            "MOVE Endeksi (Tahvil Volatilitesi)": 0.11752228108851925,
-            "VIX Endeksi (Hisse Volatilitesi)": 0.06985080465672314,
-            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.021199990376984654,
-            "Öncü İstihdam (ICSA)": 0.012350000000000003,
-            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.03094917609724619
+            "Dolar Endeksi Zayıflığı (DXY)": 0.07842959209786525,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.08404537152132881,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.21022458885113127,
+            "10Y Breakeven Enflasyon İvmesi": 0.10356493367105157,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.02374091876307068,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.1460442851879967,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.099179626761183,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.11844302656922782,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.07142054552425371,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.021859218859048273,
+            "Öncü İstihdam (ICSA)": 0.01235,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.03069789219384285
           }
         },
         "S&P 500 (SPX)": {
           "macro_exposure_multiplier_raw": 0.45,
-          "macro_exposure_multiplier_effective": 0.6609004394584104,
-          "structural_asset_tilt": 0.6167077063062634,
-          "target_portfolio_weight_pct": 2.8226241428045395,
+          "macro_exposure_multiplier_effective": 0.6589451524234844,
+          "structural_asset_tilt": 0.622457821877144,
+          "target_portfolio_weight_pct": 2.8185700816981454,
           "structural_state": "TIGHTENING",
-          "portfolio_risk_budget_pct": 31.64552073627504,
-          "cash_target_pct": 68.35447926372495,
+          "portfolio_risk_budget_pct": 31.401375404410718,
+          "cash_target_pct": 68.59862459558927,
           "indicator_weights": {
-            "Dolar Endeksi Zayıflığı (DXY)": 0.06935335032719749,
-            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.08433430495349109,
-            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.15747331483190719,
-            "10Y Breakeven Enflasyon İvmesi": 0.11665837671141426,
-            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.009717834789875555,
-            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.10468573977642068,
-            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.17851265910183706,
-            "MOVE Endeksi (Tahvil Volatilitesi)": 0.03457794115286151,
-            "VIX Endeksi (Hisse Volatilitesi)": 0.10143673973127691,
-            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.01033999321759585,
-            "Öncü İstihdam (ICSA)": 0.11705768078197182,
-            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.015852064624150612
+            "Dolar Endeksi Zayıflığı (DXY)": 0.06918149537619289,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.08138883874338768,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.1578992537770512,
+            "10Y Breakeven Enflasyon İvmesi": 0.11785707401515944,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.009664813368163579,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.10490898232637388,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.17892873872097217,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.03539917519345143,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.10244394508732622,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.009959148402665029,
+            "Öncü İstihdam (ICSA)": 0.1166260441675872,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.01574249082166935
           }
         },
         "Kripto (BTC)": {
           "macro_exposure_multiplier_raw": 0.35,
-          "macro_exposure_multiplier_effective": 0.599245973905394,
-          "structural_asset_tilt": 0.6167077063062634,
-          "target_portfolio_weight_pct": 2.55930553595921,
+          "macro_exposure_multiplier_effective": 0.5969351801368452,
+          "structural_asset_tilt": 0.622457821877144,
+          "target_portfolio_weight_pct": 2.3446433428754743,
           "structural_state": "TIGHTENING",
-          "portfolio_risk_budget_pct": 31.64552073627504,
-          "cash_target_pct": 68.35447926372495,
+          "portfolio_risk_budget_pct": 31.401375404410718,
+          "cash_target_pct": 68.59862459558927,
           "indicator_weights": {
-            "Dolar Endeksi Zayıflığı (DXY)": 0.20382067177507296,
-            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.22474786415047487,
-            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.1609508239027538,
-            "10Y Breakeven Enflasyon İvmesi": 0.10945050729004817,
-            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.0070392665956096195,
-            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.02756465930095583,
-            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.04985080465672311,
-            "MOVE Endeksi (Tahvil Volatilitesi)": 0.015307334461985591,
-            "VIX Endeksi (Hisse Volatilitesi)": 0.11090081427973844,
-            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.004134033933187985,
-            "Öncü İstihdam (ICSA)": 0.004134033933187985,
-            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.08209918572026152
+            "Dolar Endeksi Zayıflığı (DXY)": 0.20160193552072042,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.22012846766623906,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.16120210780615715,
+            "10Y Breakeven Enflasyon İvmesi": 0.11224887900335012,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.007034150047988798,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.02900364166916393,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.05142054552425371,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.015697211405057827,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.11181132666520543,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.004331530678534514,
+            "Öncü İstihdam (ICSA)": 0.004331530678534514,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.08118867333479457
           }
         },
         "Ham Petrol (WTI)": {
           "macro_exposure_multiplier_raw": 1.35,
-          "macro_exposure_multiplier_effective": 1.2157906294355572,
-          "structural_asset_tilt": 0.6167077063062634,
-          "target_portfolio_weight_pct": 5.1924916044125045,
+          "macro_exposure_multiplier_effective": 1.2170349030032372,
+          "structural_asset_tilt": 0.622457821877144,
+          "target_portfolio_weight_pct": 7.5391166330803365,
           "structural_state": "TIGHTENING",
-          "portfolio_risk_budget_pct": 31.64552073627504,
-          "cash_target_pct": 68.35447926372495,
+          "portfolio_risk_budget_pct": 31.401375404410718,
+          "cash_target_pct": 68.59862459558927,
           "indicator_weights": {
-            "Dolar Endeksi Zayıflığı (DXY)": 0.16612826469359032,
-            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.12619920496629222,
-            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.047921744929425,
-            "10Y Breakeven Enflasyon İvmesi": 0.2469855506224174,
-            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.1699363745251712,
-            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.011900139060322123,
-            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.04646495666763077,
-            "MOVE Endeksi (Tahvil Volatilitesi)": 0.004696402299168266,
-            "VIX Endeksi (Hisse Volatilitesi)": 0.017578681874556707,
-            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.004246402299168266,
-            "Öncü İstihdam (ICSA)": 0.14982800665514037,
-            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.008114271407117294
+            "Dolar Endeksi Zayıflığı (DXY)": 0.16536897699792918,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.12397023561669804,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.04802180414302257,
+            "10Y Breakeven Enflasyon İvmesi": 0.24957357081328263,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.17277567861943977,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.01194505211950008,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.04667530819006753,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.0045239203572211275,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.016954133356429396,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.004073920357221128,
+            "Öncü İstihdam (ICSA)": 0.14833785881072406,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.00777954061846466
           }
         },
         "Bakır (HG)": {
           "macro_exposure_multiplier_raw": 0.85,
-          "macro_exposure_multiplier_effective": 0.9075183016704755,
-          "structural_asset_tilt": 0.6167077063062634,
-          "target_portfolio_weight_pct": 3.8758985701858575,
+          "macro_exposure_multiplier_effective": 0.9069850415700412,
+          "structural_asset_tilt": 0.622457821877144,
+          "target_portfolio_weight_pct": 4.797387296689947,
           "structural_state": "TIGHTENING",
-          "portfolio_risk_budget_pct": 31.64552073627504,
-          "cash_target_pct": 68.35447926372495,
+          "portfolio_risk_budget_pct": 31.401375404410718,
+          "cash_target_pct": 68.59862459558927,
           "indicator_weights": {
-            "Dolar Endeksi Zayıflığı (DXY)": 0.17186824890714975,
-            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.14849737638918334,
-            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.06498772391854124,
-            "10Y Breakeven Enflasyon İvmesi": 0.19685439088603726,
-            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.10518170587201668,
-            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.013779429826420947,
-            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.06803266457340174,
-            "MOVE Endeksi (Tahvil Volatilitesi)": 0.006280330159981833,
-            "VIX Endeksi (Hisse Volatilitesi)": 0.02305630310219225,
-            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.005830074504916869,
-            "Öncü İstihdam (ICSA)": 0.1789296028454934,
-            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.01670214901466452
+            "Dolar Endeksi Zayıflığı (DXY)": 0.1703052395338674,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.14613406354605268,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.06523814863076033,
+            "10Y Breakeven Enflasyon İvmesi": 0.1994203408012232,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.10733065488406694,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.01383439483694184,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.06839339579455517,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.006440012548610492,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.02316630227407145,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.005989763808629268,
+            "Öncü İstihdam (ICSA)": 0.1774358832899924,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.016311800051228828
           }
         },
         "ABD Tahvili / Faiz (TLT)": {
           "macro_exposure_multiplier_raw": 0.3,
           "macro_exposure_multiplier_effective": 0.3,
-          "structural_asset_tilt": 0.7951541746452934,
-          "target_portfolio_weight_pct": 1.6520007264871701,
+          "structural_asset_tilt": 0.800511835694662,
+          "target_portfolio_weight_pct": 1.2398684183567634,
           "structural_state": "TIGHTENING",
-          "portfolio_risk_budget_pct": 31.64552073627504,
-          "cash_target_pct": 68.35447926372495,
+          "portfolio_risk_budget_pct": 31.401375404410718,
+          "cash_target_pct": 68.59862459558927,
           "indicator_weights": {
-            "Dolar Endeksi Zayıflığı (DXY)": 0.020513864267248064,
-            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.014006927322116359,
-            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.20295082390275385,
-            "10Y Breakeven Enflasyon İvmesi": 0.22322116944210585,
-            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.15824210009179238,
-            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.08397175455244037,
-            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.02992854281423459,
-            "MOVE Endeksi (Tahvil Volatilitesi)": 0.14890081427973847,
-            "VIX Endeksi (Hisse Volatilitesi)": 0.005950000000000001,
-            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.10380707600545384,
-            "Öncü İstihdam (ICSA)": 0.0042534636610581785,
-            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.0042534636610581785
+            "Dolar Endeksi Zayıflığı (DXY)": 0.01972387728586195,
+            "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": 0.01394154807245511,
+            "Reel Faiz İndirgeme İvmesi (10Y TIPS)": 0.2032021078061571,
+            "10Y Breakeven Enflasyon İvmesi": 0.22446003338311876,
+            "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": 0.15867051086093592,
+            "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": 0.08341258528397429,
+            "Yüksek Getirili Kredi Stresi (HY OAS)": 0.029259081236929312,
+            "MOVE Endeksi (Tahvil Volatilitesi)": 0.1498113266652054,
+            "VIX Endeksi (Hisse Volatilitesi)": 0.0059499999999999996,
+            "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": 0.10312738133290691,
+            "Öncü İstihdam (ICSA)": 0.004220774036227556,
+            "Hazine Nakit / Banka Rezervleri (WRESBAL)": 0.004220774036227556
           }
+        }
+      },
+      "asset_signals": {
+        "Altın (XAU)": {
+          "label": "AZALT / KORUMA",
+          "score": -50.23451972177948,
+          "confidence": 0.868541775401844,
+          "macro_component": -0.9706470166331079,
+          "market_component": -0.5078807757560264,
+          "structure_component": 0.11859530433433804
+        },
+        "Gümüş (XAG)": {
+          "label": "GÜÇLÜ SAT / KORUMA",
+          "score": -61.22865528938455,
+          "confidence": 0.8728449995309224,
+          "macro_component": -0.855255417082981,
+          "market_component": -0.6904244026833859,
+          "structure_component": -0.11467404092844205
+        },
+        "Nasdaq 100 (NQ)": {
+          "label": "NÖTR",
+          "score": -26.671893904203927,
+          "confidence": 0.8851148548430398,
+          "macro_component": -0.9959786871106161,
+          "market_component": 0.5845924113939875,
+          "structure_component": -0.11467404092844205
+        },
+        "S&P 500 (SPX)": {
+          "label": "NÖTR",
+          "score": -26.282230057715157,
+          "confidence": 0.7909354320462403,
+          "macro_component": -0.737922581352055,
+          "market_component": 0.30080440042673967,
+          "structure_component": -0.11467404092844205
+        },
+        "Kripto (BTC)": {
+          "label": "AZALT / KORUMA",
+          "score": -37.282153114276625,
+          "confidence": 0.8333006889631996,
+          "macro_component": -0.9789050775503474,
+          "market_component": 0.2619294516087461,
+          "structure_component": -0.11467404092844205
+        },
+        "Ham Petrol (WTI)": {
+          "label": "AL",
+          "score": 34.043994231109174,
+          "confidence": 0.7445680603281252,
+          "macro_component": 0.5547852682033005,
+          "market_component": 0.23587167317097846,
+          "structure_component": -0.11467404092844205
+        },
+        "Bakır (HG)": {
+          "label": "NÖTR",
+          "score": 5.559540713491757,
+          "confidence": 0.6398626977535681,
+          "macro_component": 0.20391161421056583,
+          "market_component": 0.005667461330911172,
+          "structure_component": -0.11467404092844205
+        },
+        "ABD Tahvili / Faiz (TLT)": {
+          "label": "AZALT / KORUMA",
+          "score": -59.75327253178227,
+          "confidence": 0.8815709630379691,
+          "macro_component": -0.9957719962898555,
+          "market_component": -0.5612420537878648,
+          "structure_component": 0.1315179872192795
+        }
+      },
+      "factor_scores": {
+        "Dolar Endeksi Zayıflığı (DXY)": {
+          "z": -0.736778095931964,
+          "value": 101.01200103759766
+        },
+        "G4 Küresel Süper Likidite (Fed+ECB+BoJ)": {
+          "z": -0.14961764267332378,
+          "value": 9148653.798329296
+        },
+        "Reel Faiz İndirgeme İvmesi (10Y TIPS)": {
+          "z": -1.7063040953590038,
+          "value": 2.85
+        },
+        "10Y Breakeven Enflasyon İvmesi": {
+          "z": 0.2450795935888276,
+          "value": 2.34
+        },
+        "5Y5Y İleri Enflasyon Beklentisi (T5YIFR)": {
+          "z": 0.4723487468784261,
+          "value": 2.34
+        },
+        "Fed Gevşeme / Faiz İndirim Baskısı (EFFR - 2Y)": {
+          "z": -1.4673928646930021,
+          "value": -0.9900000000000002
+        },
+        "Yüksek Getirili Kredi Stresi (HY OAS)": {
+          "z": 0.8916383034548552,
+          "value": 2.8
+        },
+        "MOVE Endeksi (Tahvil Volatilitesi)": {
+          "z": -0.022381938673152593,
+          "value": 96.0
+        },
+        "VIX Endeksi (Hisse Volatilitesi)": {
+          "z": 0.5571816200081094,
+          "value": 16.170000076293945
+        },
+        "Getiri Eğrisi Dikleşme Döngüsü (10Y-2Y)": {
+          "z": -1.2509794578028335,
+          "value": 0.36
+        },
+        "Öncü İstihdam (ICSA)": {
+          "z": 0.6587592469012871,
+          "value": 197000.0
+        },
+        "Hazine Nakit / Banka Rezervleri (WRESBAL)": {
+          "z": -0.9610286341968703,
+          "value": 2930193.0
         }
       }
     },
@@ -4017,9 +4133,256 @@
           "stale_count": 0,
           "missing_count": 0
         }
+      },
+      {
+        "timestamp_utc": "2026-09-28T08:16:35.879289+00:00",
+        "action": "HOLD_PREVIOUS_DURING_TRANSITION",
+        "previous_confirmed_regime_id": 1,
+        "confirmed_regime_id": 1,
+        "candidate_regime_id": 0,
+        "confirmed_regime_name": "Küresel Enflasyon & Stagflasyon Şoku",
+        "candidate_regime_name": "REJIMSIZ_GECIS",
+        "subtype": "N/A",
+        "in_transition": true,
+        "extreme_event": false,
+        "continuum_dominant_regime": "STAGFLASYON",
+        "continuum_probabilities": {
+          "GOLDILOCKS": 0.21734374008652035,
+          "REFLASYON": 0.37119055862820194,
+          "STAGFLASYON": 0.3779838743782237,
+          "DEFLASYON": 0.033481826907053994
+        },
+        "continuum_deterministic_agreement": true,
+        "structural_state": {
+          "state": "TIGHTENING",
+          "risk_appetite_score": 0.4286244609724829,
+          "strategic_risk_score": 0.4358386242374327,
+          "tactical_risk_score": 0.42272196375570575,
+          "tactical_risk_on_event_score": 0.30899225175756023,
+          "tightening_score": 0.663851994107143,
+          "tightening_score_20": 0.7260550237228536,
+          "tightening_score_60": 0.6303580550832989,
+          "defensive_stress_score": 0.4793279524212359,
+          "persistence_score": 0.2604551727263713,
+          "alignment_score": 0.9165966457334191,
+          "slow_risk_appetite_20": 0.3816264439641551,
+          "slow_risk_appetite_60": 0.465029798230736,
+          "fast_risk_appetite": 0.44033432938065603,
+          "risk_asset_breadth_5": 0.0,
+          "risk_asset_breadth_20": 0.16666666666666666,
+          "risk_asset_breadth_60": 0.3333333333333333,
+          "risk_rotation_5": 0.6789310221146646,
+          "risk_rotation_20": 0.6639821721959556,
+          "risk_rotation_60": 0.5757877974738013,
+          "gold_relative_weakness_5": 0.6739771954632126,
+          "gold_relative_weakness_20": 0.6129819742655491,
+          "gold_relative_weakness_60": 0.27495484016656097,
+          "portfolio_risk_budget": 0.3140137540441072,
+          "cash_target_pct": 68.59862459558927,
+          "confidence": 0.482302557118183,
+          "risk_on_streak_days": 0,
+          "tightening_streak_days": 3,
+          "defensive_streak_days": 0
+        },
+        "data_fingerprint": "0b0329a8dc6da1895684345388dc3a48c0b47af67e3319ea80f995c452ef8c9a",
+        "data_freshness": {
+          "as_of": "2026-09-28T08:16:30.246502",
+          "series": {
+            "oil": {
+              "status": "FRESH",
+              "latest": "2026-09-28T00:00:00",
+              "age_business_days": 0,
+              "max_age_business_days": 3
+            },
+            "bdi": {
+              "status": "FRESH",
+              "latest": "2026-09-25T00:00:00",
+              "age_business_days": 1,
+              "max_age_business_days": 5
+            },
+            "hy_oas": {
+              "status": "FRESH",
+              "latest": "2026-09-24T00:00:00",
+              "age_business_days": 2,
+              "max_age_business_days": 7
+            },
+            "ig_oas": {
+              "status": "FRESH",
+              "latest": "2026-09-24T00:00:00",
+              "age_business_days": 2,
+              "max_age_business_days": 7
+            },
+            "spx": {
+              "status": "FRESH",
+              "latest": "2026-09-25T00:00:00",
+              "age_business_days": 1,
+              "max_age_business_days": 3
+            },
+            "ust10y": {
+              "status": "FRESH",
+              "latest": "2026-09-24T00:00:00",
+              "age_business_days": 2,
+              "max_age_business_days": 7
+            },
+            "ust2y": {
+              "status": "FRESH",
+              "latest": "2026-09-24T00:00:00",
+              "age_business_days": 2,
+              "max_age_business_days": 7
+            },
+            "dtwex": {
+              "status": "FRESH",
+              "latest": "2026-09-18T00:00:00",
+              "age_business_days": 6,
+              "max_age_business_days": 7
+            },
+            "dxy": {
+              "status": "FRESH",
+              "latest": "2026-09-28T00:00:00",
+              "age_business_days": 0,
+              "max_age_business_days": 3
+            },
+            "usdjpy": {
+              "status": "FRESH",
+              "latest": "2026-09-28T00:00:00",
+              "age_business_days": 0,
+              "max_age_business_days": 3
+            },
+            "vix": {
+              "status": "FRESH",
+              "latest": "2026-09-28T00:00:00",
+              "age_business_days": 0,
+              "max_age_business_days": 3
+            },
+            "move": {
+              "status": "FRESH",
+              "latest": "2026-09-25T00:00:00",
+              "age_business_days": 1,
+              "max_age_business_days": 3
+            },
+            "btc": {
+              "status": "FRESH",
+              "latest": "2026-09-28T00:00:00",
+              "age_business_days": 0,
+              "max_age_business_days": 3
+            },
+            "dfii10": {
+              "status": "FRESH",
+              "latest": "2026-09-24T00:00:00",
+              "age_business_days": 2,
+              "max_age_business_days": 7
+            },
+            "t10yie": {
+              "status": "FRESH",
+              "latest": "2026-09-25T00:00:00",
+              "age_business_days": 1,
+              "max_age_business_days": 7
+            },
+            "ndl": {
+              "status": "FRESH",
+              "latest": "2026-09-25T00:00:00",
+              "age_business_days": 1,
+              "max_age_business_days": 10
+            },
+            "gold": {
+              "status": "FRESH",
+              "latest": "2026-09-28T00:00:00",
+              "age_business_days": 0,
+              "max_age_business_days": 3
+            },
+            "xag": {
+              "status": "FRESH",
+              "latest": "2026-09-28T00:00:00",
+              "age_business_days": 0,
+              "max_age_business_days": 3
+            },
+            "hg": {
+              "status": "FRESH",
+              "latest": "2026-09-28T00:00:00",
+              "age_business_days": 0,
+              "max_age_business_days": 3
+            },
+            "dbb": {
+              "status": "FRESH",
+              "latest": "2026-09-25T00:00:00",
+              "age_business_days": 1,
+              "max_age_business_days": 3
+            },
+            "nfci": {
+              "status": "FRESH",
+              "latest": "2026-09-18T00:00:00",
+              "age_business_days": 6,
+              "max_age_business_days": 10
+            },
+            "icsa": {
+              "status": "FRESH",
+              "latest": "2026-09-18T00:00:00",
+              "age_business_days": 6,
+              "max_age_business_days": 10
+            },
+            "bank_equity": {
+              "status": "FRESH",
+              "latest": "2026-09-25T00:00:00",
+              "age_business_days": 1,
+              "max_age_business_days": 3
+            },
+            "small_caps": {
+              "status": "FRESH",
+              "latest": "2026-09-25T00:00:00",
+              "age_business_days": 1,
+              "max_age_business_days": 3
+            }
+          },
+          "missing_keys": [],
+          "stale_keys": [],
+          "fresh_count": 24,
+          "stale_count": 0,
+          "missing_count": 0
+        },
+        "circuit_breaker_triggered": false,
+        "circuit_breaker_reasons": [],
+        "data_health": {
+          "contract_schema_version": "2.4",
+          "contract_key_count": 24,
+          "critical_key_count": 9,
+          "critical_missing_series": [],
+          "critical_stale_series": [],
+          "series_count": 24,
+          "evaluated_rows": 3323,
+          "latest_feature_date": "2026-09-28 00:00:00",
+          "latest_source_observation_by_series": {
+            "oil": "2026-09-28T00:00:00",
+            "bdi": "2026-09-25T00:00:00",
+            "hy_oas": "2026-09-24T00:00:00",
+            "ig_oas": "2026-09-24T00:00:00",
+            "spx": "2026-09-25T00:00:00",
+            "ust10y": "2026-09-24T00:00:00",
+            "ust2y": "2026-09-24T00:00:00",
+            "dtwex": "2026-09-18T00:00:00",
+            "dxy": "2026-09-28T00:00:00",
+            "usdjpy": "2026-09-28T00:00:00",
+            "vix": "2026-09-28T00:00:00",
+            "move": "2026-09-25T00:00:00",
+            "btc": "2026-09-28T00:00:00",
+            "dfii10": "2026-09-24T00:00:00",
+            "t10yie": "2026-09-25T00:00:00",
+            "ndl": "2026-09-25T00:00:00",
+            "gold": "2026-09-28T00:00:00",
+            "xag": "2026-09-28T00:00:00",
+            "hg": "2026-09-28T00:00:00",
+            "dbb": "2026-09-25T00:00:00",
+            "nfci": "2026-09-18T00:00:00",
+            "icsa": "2026-09-18T00:00:00",
+            "bank_equity": "2026-09-25T00:00:00",
+            "small_caps": "2026-09-25T00:00:00"
+          },
+          "fresh_count": 24,
+          "stale_count": 0,
+          "missing_count": 0
+        }
       }
     ],
-    "last_persisted_at_utc": "2026-09-28T00:23:16.551617+00:00"
+    "last_persisted_at_utc": "2026-09-28T08:16:35.879289+00:00"
   },
   "validation_mode": "SYNTHETIC_PARAMETERIZED",
   "performance_claims_valid_for_live_markets": false,
