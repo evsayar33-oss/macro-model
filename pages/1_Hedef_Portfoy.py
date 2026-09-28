@@ -38,8 +38,32 @@ conf, cand, tr = live["confirmed"], live["candidate"], live["in_transition"]
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Onaylı Rejim", f"{conf}: {REGIME_NAMES.get(conf, '')}")
 c2.metric("Aday Rejim", f"{cand}: {REGIME_NAMES.get(cand, '')}", "⏳ geçişte (60/40 harman)" if tr and cand != conf else "🔒 sabit")
-c3.metric("Risk Bütçesi (yatırılan)", f"%{structural.get('portfolio_risk_budget', 0.5) * 100:.0f}", structural.get("state", ""))
+c3.metric("Yatırılan (vol hedefli)", f"%{100 - live['target'].get(CASH_KEY, 0):.0f}", structural.get("state", ""))
 c4.metric("Nakit", f"%{live['target'].get(CASH_KEY, 0):.0f}", f"veri: {live['as_of']}")
+
+from regime_portfolio import STRATEGY_LABELS  # noqa: E402
+st.markdown("## 🏆 Strateji Seçimi (örneklem dışı yarış)")
+_scores = (live.get("strategy_scores") or {}).get("strategies", {})
+st.success(f"Canlı strateji: **{STRATEGY_LABELS.get(live['strategy'], live['strategy'])}**"
+           + ("" if _scores else " — (henüz doğrulama sonucu yok; varsayılan. GitHub → Actions → "
+              "'Macro Model Historical Validation' çalıştırılınca en iyi strateji otomatik seçilir.)"))
+_rows = []
+for k, lbl in STRATEGY_LABELS.items():
+    sc = _scores.get(k, {})
+    _rows.append({"Strateji": ("🏆 " if k == live["strategy"] else "") + lbl,
+                  "Yıllık getiri": f"%{sc['cagr']*100:+.1f}" if sc else "—",
+                  "Maks. düşüş": f"%{sc['max_dd']*100:.1f}" if sc else "—",
+                  "Sharpe": f"{sc['sharpe']:.2f}" if sc else "—",
+                  "Calmar": f"{sc['calmar']:.2f}" if sc and sc.get('calmar') is not None else "—"})
+st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+st.caption("Değerler örneklem dışıdır: her strateji geçmişte her hafta yalnızca o güne kadarki veriyle karar verdi. "
+           "Tüm stratejiler %10 yıllık volatilite hedefiyle ölçeklenir (kaldıraç yok; kalan nakit).")
+
+with st.expander("Tüm stratejilerin güncel hedef ağırlıkları"):
+    _all = live.get("all_targets", {})
+    if _all:
+        st.dataframe(pd.DataFrame({STRATEGY_LABELS.get(k, k): {a: round(v, 1) for a, v in w.items()} for k, w in _all.items()}),
+                     use_container_width=True)
 
 st.markdown("## 🧭 Aktif Hedef Portföy")
 tgt = live["target"]
@@ -53,7 +77,7 @@ with col_b:
     fig.update_layout(height=360, margin=dict(l=10, r=10, t=10, b=10), xaxis_title="%")
     st.plotly_chart(fig, use_container_width=True)
 
-st.markdown("## 📋 Her Rejim İçin Minimum Drawdown Portföyü (%100 riskli sepet)")
+st.markdown("## 📋 Referans: Her Rejim İçin Minimum Drawdown Portföyü (%100 riskli sepet, örneklem içi)")
 rows = []
 for rid in range(6):
     p = ports["portfolios"].get(rid)
