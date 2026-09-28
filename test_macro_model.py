@@ -71,3 +71,31 @@ def test_publication_lag_moves_dates_forward():
     s = pd.Series([1.0, 2.0], index=pd.to_datetime(["2026-01-03", "2026-01-10"]))  # Saturdays (ICSA)
     lagged = apply_publication_lag(s, 4)
     assert (lagged.index > s.index).all()
+
+
+def _toy_prices(n=900, seed=0):
+    idx = pd.bdate_range("2021-01-04", periods=n)
+    rng = np.random.default_rng(seed)
+    vols = [0.009, 0.018, 0.016, 0.012, 0.035, 0.022, 0.015, 0.009]
+    return idx, {a: pd.Series(100 * np.exp(np.cumsum(rng.normal(0.0003, v, n))), idx)
+                 for a, v in zip(m.ASSET_MARKET_TICKERS, vols)}
+
+
+def test_min_drawdown_beats_equal_weight_in_sample_and_respects_caps():
+    from regime_portfolio import compute_regime_portfolios, DEFAULT_CAP
+    idx, prices = _toy_prices()
+    regime = pd.Series(np.repeat([0, 1, 2, 0, 5, 1], 150)[: len(idx)], idx)
+    out = compute_regime_portfolios(regime, prices)
+    for rid, p in out["portfolios"].items():
+        w = p["weights"]
+        assert abs(sum(w.values()) - 1) < 1e-6 and max(w.values()) <= DEFAULT_CAP + 1e-6 and min(w.values()) >= -1e-9
+        if p["stats"].get("days", 0) >= 60:
+            assert p["stats"]["max_drawdown"] >= p["ew_stats"]["max_drawdown"] - 1e-9  # less negative
+
+
+def test_active_target_sums_to_100_with_cash():
+    from regime_portfolio import active_target_weights, compute_regime_portfolios, CASH_KEY
+    idx, prices = _toy_prices()
+    out = compute_regime_portfolios(pd.Series(0, idx), prices)
+    tgt = active_target_weights(out, 0, 0, False, 0.4)
+    assert abs(sum(tgt.values()) - 100) < 1e-6 and abs(tgt[CASH_KEY] - 60) < 1e-6

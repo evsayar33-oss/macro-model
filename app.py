@@ -79,54 +79,12 @@ ASSET_INDICATORS=asset_engine.INDICATORS
 # --- 1. SAYFA VE API AYARLARI ---
 # (İkinci st.set_page_config çağrısı kaldırıldı: Streamlit tek çağrı bekler.)
 
-try:
-    FRED_API_KEY = st.secrets["FRED_API_KEY"]
-    fred = Fred(api_key=FRED_API_KEY)
-except:
-    st.error("Lütfen Streamlit Cloud ayarlarına FRED_API_KEY eklediğinizden emin olun!")
-    st.stop()
-
-# --- 2. GELİŞMİŞ VERİ VE LİKİDİTE MOTORLARI ---
-@st.cache_data(ttl=900)
-def fetch_fred_data(series_id, days=2500):
-    end_date = datetime.today()
-    start_date = end_date - timedelta(days=days)
-    try:
-        data = fred.get_series(series_id, start_date, end_date)
-        s = pd.Series(data)
-        s.index = pd.to_datetime(s.index)
-        s = s.resample('B').ffill().dropna()
-        return s.astype(float)
-    except:
-        return pd.Series(dtype=float)
-
-@st.cache_data(ttl=900)
-def fetch_yf_data(ticker, days=2500):
-    end_date = datetime.today()
-    start_date = end_date - timedelta(days=days)
-    try:
-        data = yf.download(ticker, start=start_date, end=end_date, progress=False)
-        if data.empty:
-            data = yf.download(ticker, period="10y", progress=False)
-            
-        if data.empty:
-            return pd.Series(dtype=float)
-            
-        if 'Close' in data.columns:
-            s = data['Close']
-        else:
-            s = data.iloc[:, 0]
-            
-        if isinstance(s, pd.DataFrame):
-            s = s.iloc[:, 0]
-            
-        s = pd.Series(s.values.flatten(), index=pd.to_datetime(s.index))
-        if s.index.tz is not None:
-            s.index = s.index.tz_localize(None)
-        s = s.resample('B').ffill().dropna()
-        return s.astype(float)
-    except:
-        return pd.Series(dtype=float)
+# Veri çekme + motor artık macro_pipeline.py'de (önbellek tüm sayfalarda ortak).
+# FRED anahtarı yoksa anahtarsız halka açık FRED CSV'sine düşülür.
+from macro_pipeline import (  # noqa: E402
+    fetch_fred_data, fetch_yf_data, fetch_g4_global_net_liquidity as _mp_fetch_g4,
+    build_macro_input, run_regime_history, get_live_target, render_refresh_button,
+)
 
 # ZIRHLI RASYONEL VE MAKAS HESAPLAYICI
 def safe_ratio(s1, s2):
@@ -191,24 +149,8 @@ def fetch_crypto_fear_greed():
         pass
     return pd.Series(dtype=float)
 
-# G4 KONSOLİDE KÜRESEL LİKİDİTE MOTORU
-@st.cache_data(ttl=1800)
-def fetch_g4_global_net_liquidity(days=2500):
-    try:
-        walcl=fetch_fred_data('WALCL',days); tga=fetch_fred_data('WTREGEN',days); rrp=fetch_fred_data('RRPONTSYD',days)
-        ecb=fetch_fred_data('ECBASSETSW',days); boj=fetch_fred_data('JPNASSETS',days)
-        eurusd=fetch_yf_data('EURUSD=X',days); usdjpy=fetch_yf_data('JPY=X',days)
-        parts=[compute_net_liquidity(walcl,tga,rrp).rename('us_net')]
-        if not ecb.empty and not eurusd.empty:
-            d=pd.concat([ecb,eurusd],axis=1).sort_index().ffill().dropna();
-            if not d.empty: parts.append((d.iloc[:,0]*d.iloc[:,1]*0.35).rename('ecb_usd'))
-        if not boj.empty and not usdjpy.empty:
-            d=pd.concat([boj,usdjpy],axis=1).sort_index().ffill().dropna();
-            if not d.empty: parts.append(((d.iloc[:,0]*100.0/(d.iloc[:,1]+1e-8))*0.25).rename('boj_usd'))
-        df=pd.concat(parts,axis=1).sort_index().ffill().dropna()
-        return df.sum(axis=1).dropna().astype(float)
-    except:
-        return compute_net_liquidity(fetch_fred_data('WALCL',days),fetch_fred_data('WTREGEN',days),fetch_fred_data('RRPONTSYD',days))
+# G4 KONSOLİDE KÜRESEL LİKİDİTE MOTORU (ortak: macro_pipeline)
+fetch_g4_global_net_liquidity = _mp_fetch_g4
 
 # --- 3. KADEMELİ VE PÜRÜZSÜZ REJİM GEÇİŞ MOTORU (FUZZY CONTINUUM) ---
 def get_realtime_macro_regime(
@@ -268,6 +210,8 @@ st.caption(f"🧩 Macro Engine: {getattr(macro_engine, '__name__', 'macro_event_
 st.markdown("**Makro Olay Yorumlama Sistemi v1.0 (Deterministik Şok & Risk Motoru) & Sürekli Portföy Karması (Continuum Master)**")
 
 st.sidebar.header("VARLIK VE RİSK YÖNETİMİ")
+render_refresh_button()
+st.sidebar.page_link("pages/1_Hedef_Portfoy.py", label="🎯 Hedef Portföy (Minimum Drawdown)")
 asset = st.sidebar.radio("Analiz Edilecek Varlık:", (
     "Altın (XAU)", 
     "Gümüş (XAG)", 
@@ -329,39 +273,14 @@ with st.spinner("Makro Veriler ve Rejimler Analiz Ediliyor..."):
     ndl_val = compute_net_liquidity(walcl_val, tga_val, rrp_val)
     
     # 1. Deterministik Makro Olay Yorumlama Motoru (v1.0)
-    macro_input_dict = {
-        'oil': cl_oil,
-        'bdi': bdry,
-        'hy_oas': hy_oas,
-        'ig_oas': ig_oas_val,
-        'spx': spx_val,
-        'ust10y': ust10y_val,
-        'ust2y': dgs2,
-        'dtwex': dtwex_val,
-        'dxy': dxy,
-        'usdjpy': usdjpy_val,
-        'vix': vix,
-        'move': move,
-        'btc': btc_val,
-        'dfii10': tips_real,
-        't10yie': t10yie,
-        'ndl': ndl_val,
-        'gold': gold_val,
-        'xag': fetch_yf_data('SI=F'),
-        'hg': fetch_yf_data('HG=F'),
-        'dbb': dbb,
-        'nfci': nfci,
-        'icsa': icsa,
-        'bank_equity': bank_equity,
-        'small_caps': small_caps
-    }
+    macro_input_dict = build_macro_input()
     
     contract_report = validate_macro_input(macro_input_dict, require_critical=False)
     normalized_input = normalize_macro_input(macro_input_dict, strict=True)
     data_freshness = assess_data_freshness(normalized_input)
 
     macro_system = MacroEventInterpretationSystem()
-    macro_hist_df = macro_system.evaluate_history(macro_input_dict)
+    macro_hist_df = run_regime_history()   # önbellekli, Hedef Portföy sayfasıyla ortak
     
     if not macro_hist_df.empty:
         last_macro_row = macro_hist_df.iloc[-1]
@@ -388,7 +307,10 @@ with st.spinner("Makro Veriler ve Rejimler Analiz Ediliyor..."):
     macro_asset_mults = get_macro_interpretation_asset_multipliers(confirmed_regime_id, active_macro_subtype)
     active_macro_mult = macro_asset_mults.get(asset, 1.0)
     effective_macro_mult = compute_effective_macro_asset_multiplier(asset, active_macro_mult, structural_state)
-    target_portfolio_weights = compute_target_portfolio_weights(confirmed_regime_id, active_macro_subtype, structural_state)
+    # Hedef portföy artık rejim bazlı MİNİMUM DRAWDOWN optimizasyonundan gelir
+    # (regime_portfolio.py); detayları ayrı "🎯 Hedef Portföy" sayfasında.
+    _live_target = get_live_target()
+    target_portfolio_weights = _live_target.get("target", {}) if _live_target.get("available") else {}
     
     # 2. Sürekli Kademeli Rejim (Continuum)
     dominant_regime, regime_title, blended_multiplier, dynamic_inf_anchor, regime_probs, continuum_diagnostics = get_realtime_macro_regime(
@@ -513,10 +435,8 @@ with main_tab2:
         f"%{structural_state.get('risk_rotation_20',0.5)*100:.0f} / %{structural_state.get('risk_rotation_60',0.5)*100:.0f}"
     )
 
-    st.markdown("### 🧭 Gerçek Hedef Portföy Dağılımı")
-    st.caption("Makro rejim ile portföy risk iştahı ayrı eksenlerde hesaplanır; risk bütçesi 8 varlık + nakit arasında dağıtılır.")
-    portfolio_df=pd.DataFrame([{"Varlık":k,"Hedef Pay (%)":round(v,2)} for k,v in target_portfolio_weights.items()])
-    st.dataframe(portfolio_df,use_container_width=True,hide_index=True)
+    st.info("🎯 Gerçek hedef portföy dağılımı (her rejim için minimum drawdown optimizasyonu) artık ayrı sayfada.")
+    st.page_link("pages/1_Hedef_Portfoy.py", label="🎯 Hedef Portföy sayfasını aç")
 
     in_trans = bool(last_macro_row.get('in_transition', False)) if 'last_macro_row' in locals() and last_macro_row is not None else False
     dyn_weight_map = get_dynamic_asset_weights(asset, confirmed_regime_id, regime_probs, in_trans)
@@ -606,20 +526,15 @@ with main_tab2:
     # ======================================================================
     final_trend_score = float(selected_asset_state.get('score', macro_only_score))
     st.metric(f"{asset} Model Sinyali", selected_asset_state.get("label", "NÖTR"), f"Skor {selected_asset_state.get('score',0.0):+.1f} | Güven %{selected_asset_state.get('confidence',0.0)*100:.0f}")
-    target_portfolio_weights = compute_target_portfolio_weights(confirmed_regime_id, active_macro_subtype, structural_state, asset_signal_scores=asset_signal_scores)
 
     st.markdown("### 🌐 8 Varlık Süper Tarama — Makro + Piyasa + Risk Döngüsü")
     st.caption("Her varlık kendi makro duyarlılık işaretleri, 5G/20G/60G piyasa teyidi ve stratejik/taktik risk döngüsü ile değerlendirilir.")
     scan_rows=[]
     for scan_asset,state in asset_scan.items():
         mk=state.get('market',{})
-        scan_rows.append({"Varlık":scan_asset,"Sinyal":state.get('label','NÖTR'),"Skor":round(float(state.get('score',0)),1),"Güven":f"%{float(state.get('confidence',0))*100:.0f}","5G Z":round(float(mk.get('ret5_z',0)),2),"20G Z":round(float(mk.get('ret20_z',0)),2),"60G Z":round(float(mk.get('ret60_z',0)),2),"Hedef Pay":f"%{target_portfolio_weights.get(scan_asset,0):.1f}"})
+        scan_rows.append({"Varlık":scan_asset,"Sinyal":state.get('label','NÖTR'),"Skor":round(float(state.get('score',0)),1),"Güven":f"%{float(state.get('confidence',0))*100:.0f}","5G Z":round(float(mk.get('ret5_z',0)),2),"20G Z":round(float(mk.get('ret20_z',0)),2),"60G Z":round(float(mk.get('ret60_z',0)),2),"Min-DD Hedef Pay":f"%{target_portfolio_weights.get(scan_asset,0):.1f}"})
     st.dataframe(pd.DataFrame(scan_rows).sort_values('Skor',ascending=False),use_container_width=True,hide_index=True)
 
-    st.markdown("### 🧭 Gerçek Hedef Portföy Dağılımı")
-    st.caption("Varlık sinyali + makro rejim + risk döngüsü birlikte kullanılır; nakit portföy risk bütçesinin tamamlayıcısıdır.")
-    portfolio_df=pd.DataFrame([{"Varlık":k,"Hedef Pay (%)":round(v,2)} for k,v in target_portfolio_weights.items()])
-    st.dataframe(portfolio_df,use_container_width=True,hide_index=True)
 
     # Pozisyonlama & Volatilite Hedefleme
     ticker_asset_map = {

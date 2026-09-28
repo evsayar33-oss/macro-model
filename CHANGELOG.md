@@ -1,3 +1,47 @@
+# 2026-09-28 — v2.5: Canlı yenile butonu, ayrı "🎯 Hedef Portföy" sayfası (rejim bazlı minimum drawdown)
+
+## 1) 🔄 Canlı Verileri Yenile
+- Her iki sayfanın yan menüsünde. Tüm önbelleği (FRED, Yahoo, rejim motoru,
+  portföy optimizasyonu) temizleyip her şeyi yeniden hesaplar. Altında son veri
+  yükleme zamanı yazar. Otomatik yenileme de 15 dakikada bir sürer.
+- Veri + motor katmanı `macro_pipeline.py`'ye taşındı: iki sayfa aynı önbelleği
+  kullanır, ikinci sayfayı açmak hiçbir şeyi yeniden indirmez.
+- FRED anahtarı Streamlit Secrets'ta yoksa uygulama artık durmuyor; anahtarsız
+  halka açık FRED CSV'sine düşüyor.
+
+## 2) 🎯 Hedef Portföy — ayrı sayfa, her rejim için minimum drawdown
+- `pages/1_Hedef_Portfoy.py` + `regime_portfolio.py`.
+- Her rejim (0-5) için, o rejimin onaylı olduğu tarihsel günlerde en küçük düşüşü
+  yaşamış portföy doğrusal programlama ile hesaplanır:
+  amaç = ½ × Maksimum Drawdown + ½ × CDaR(%95) (en kötü %5 düşüş durumlarının ortalaması;
+  tek bir tarihsel olaya aşırı uyumu engeller).
+  Kısıtlar: açığa satış yok, tek varlık en fazla %35, rejimdeki ortalama getiri eşit
+  ağırlıklı sepetin en az yarısı (yoksa "sadece en sakin varlık" çözümüne düşerdi).
+  Günün rejimi ertesi günün getirisine uygulanır (ileriye bakma yok). 60 günden az
+  geçmişi olan rejimler tüm-dönem çözümüne doğru çekilir.
+- Aktif hedef = onaylı rejimin portföyü (geçiş sürerken %60 onaylı / %40 aday) ×
+  yapısal risk bütçesi; kalan nakit.
+- Sayfada: aktif hedef tablo + grafik, 6 rejimin portföyleri ve her birinin
+  örneklem içi maks. DD / getirisi (eşit ağırlıkla karşılaştırmalı), aktif rejimde
+  drawdown eğrisi.
+- Ana sayfadaki iki eski "Gerçek Hedef Portföy Dağılımı" tablosu kaldırıldı (sayfaya
+  bağlantı var); 8 varlık taramasındaki pay sütunu yeni hedefi gösterir.
+- Otonom izleyici de AYNI hedefi hesaplayıp kaydediyor (`regime_min_drawdown_portfolios`).
+
+## 3) Doğrulama raporuna eklenenler
+- **Bölüm 5:** Min-DD rejim portföyünün ÖRNEKLEM DIŞI testi. Her ~çeyrekte yalnızca
+  o güne kadarki veriyle yeniden optimize edilir, ertesi gün uygulanır. Nakitli ve
+  nakitsiz iki sürümü, eski hedef ve eşit ağırlıkla yan yana gösterir.
+- **Bölüm 6:** Faktör bazında IC tablosu. Her makro göstergenin, modeldeki kutbuyla
+  her varlığı doğru mu ters mi ittiğini gösterir (TLT'deki reel faiz sorusunun kanıtı).
+
+## Test
+- 8/8 test geçti (2 yeni: min-DD kısıtları ve örneklem içi eşit ağırlığı yenmesi,
+  hedefin %100'e tamamlanması). Ana sayfa + yeni sayfa + izleyici + doğrulama sahte
+  veriyle baştan sona çalıştırıldı.
+
+---
+
 # 2026-09-28 — v2.4: hata düzeltmeleri + gerçek veriyle doğrulama altyapısı
 
 Bu sürüm modelin ağırlıklarına ve rejim eşiklerine DOKUNMAZ. Kanıtlanmış hataları

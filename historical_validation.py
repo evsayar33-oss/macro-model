@@ -211,6 +211,10 @@ def run_validation(data: Dict[str, pd.Series], years: int = 10, step: int = 5) -
 
     rows: List[Dict[str, object]] = []
     weights_rows: List[Dict[str, float]] = []
+    mindd_rows: List[Dict[str, float]] = []
+    factor_rows: List[Dict[str, float]] = []
+    from regime_portfolio import active_target_weights, compute_regime_portfolios
+    regime_ports = None
     t0 = time.time()
     for i, t in enumerate(dates):
         row = results.loc[t]
@@ -227,6 +231,18 @@ def run_validation(data: Dict[str, pd.Series], years: int = 10, step: int = 5) -
         w = compute_target_portfolio_weights(conf, subtype, structural,
                                              asset_signal_scores={a: s["score"] for a, s in scan.items()})
         weights_rows.append({"date": t, **w})
+        factor_rows.append({"date": t, **{k: v["z"] for k, v in fs.items()}})
+        # OUT-OF-SAMPLE min-drawdown regime portfolio: re-optimised every ~60
+        # business days using ONLY data up to t (regime labels and prices).
+        if regime_ports is None or i % max(1, 60 // step) == 0:
+            try:
+                regime_ports = compute_regime_portfolios(
+                    results["confirmed_regime_id"][results.index <= t], prices, lookback_days=2500, as_of=t)
+            except Exception:
+                pass
+        if regime_ports is not None:
+            mindd_rows.append({"date": t, **active_target_weights(
+                regime_ports, conf, cand, tr, structural.get("portfolio_risk_budget", 0.5))})
         for asset, st in scan.items():
             s = pr.get(asset)
             if s is None or len(s) < 260:
@@ -251,7 +267,10 @@ def run_validation(data: Dict[str, pd.Series], years: int = 10, step: int = 5) -
 
     sig = pd.DataFrame(rows)
     wts = pd.DataFrame(weights_rows).set_index("date") if weights_rows else pd.DataFrame()
-    return {"signals": sig, "weights": wts, "results": results, "prices": px, "step": step}
+    mindd = pd.DataFrame(mindd_rows).set_index("date") if mindd_rows else pd.DataFrame()
+    factors = pd.DataFrame(factor_rows).set_index("date") if factor_rows else pd.DataFrame()
+    return {"signals": sig, "weights": wts, "mindd_weights": mindd, "factors": factors,
+            "results": results, "prices": px, "step": step}
 
 
 # ----------------------------------------------------------------------
@@ -346,18 +365,32 @@ def _regime_onset_block(results: pd.DataFrame, px: pd.DataFrame) -> List[str]:
     return L
 
 
-def _portfolio_block(wts: pd.DataFrame, px: pd.DataFrame) -> List[str]:
-    L = ["## 5) Portföy testi — modelin hedef ağırlıkları vs eşit ağırlık", ""]
-    if wts.empty:
-        return L + ["- Veri yok."]
-    rets = px.pct_change().fillna(0.0)
+def _strategy_returns(wts: pd.DataFrame, rets: pd.DataFrame) -> pd.Series:
     assets = [a for a in wts.columns if a in rets.columns]
     w = wts[assets].div(100.0).reindex(rets.index).ffill().shift(1).fillna(0.0)   # trade next day
     turnover = w.diff().abs().sum(axis=1).fillna(0.0)
-    model = (w * rets[assets]).sum(axis=1) - turnover * 0.0005
-    eq = rets[assets].mean(axis=1)
+    return (w * rets[assets]).sum(axis=1) - turnover * 0.0005
+
+
+def _portfolio_block(wts: pd.DataFrame, px: pd.DataFrame, mindd: pd.DataFrame = None) -> List[str]:
+    L = ["## 5) Portföy testi — hedef ağırlıklar vs eşit ağırlık (örneklem dışı, işlem ertesi gün)", ""]
+    if wts.empty:
+        return L + ["- Veri yok."]
+    rets = px.pct_change().fillna(0.0)
     first = wts.index[0]
-    model, eq = model[model.index > first], eq[eq.index > first]
+    strategies = []
+    if mindd is not None and not mindd.empty:
+        r = _strategy_returns(mindd, rets)
+        strategies.append(("🎯 Min-DD rejim portföyü (yeni hedef, her çeyrek yalnızca geçmiş veriyle yeniden optimize)", r[r.index > first]))
+        # same weights fully invested (no cash) -> isolates the optimiser from the cash decision
+        inv = mindd.drop(columns=["Nakit / Likit Rezerv"], errors="ignore")
+        inv = inv.div(inv.sum(axis=1).replace(0, np.nan), axis=0).fillna(0) * 100
+        r2 = _strategy_returns(inv, rets)
+        strategies.append(("🎯 Min-DD rejim portföyü — %100 yatırımda (nakitsiz)", r2[r2.index > first]))
+    model = _strategy_returns(wts, rets)
+    strategies.append(("Eski hedef (sinyal × rejim çarpanı + nakit)", model[model.index > first]))
+    eq = rets[[a for a in wts.columns if a in rets.columns]].mean(axis=1)
+    strategies.append(("Eşit ağırlık 8 varlık (%100 yatırımda)", eq[eq.index > first]))
 
     def perf(r):
         cum = (1 + r).cumprod()
@@ -367,12 +400,45 @@ def _portfolio_block(wts: pd.DataFrame, px: pd.DataFrame) -> List[str]:
         dd = (cum / cum.cummax() - 1).min()
         return cagr, vol, (cagr / vol if vol > 0 else 0), dd
 
-    for name, r in (("Model (hedef ağırlıklar + nakit)", model), ("Eşit ağırlık 8 varlık (%100 yatırımda)", eq)):
+    for name, r in strategies:
         c, v, s, d = perf(r)
         L.append(f"- **{name}:** yıllık getiri %{c * 100:+.1f} · volatilite %{v * 100:.1f} · Sharpe {s:.2f} · maks. düşüş %{d * 100:.1f}")
     avg_cash = wts.get("Nakit / Likit Rezerv", pd.Series(dtype=float)).mean()
     L.append(f"- Ortalama nakit payı: %{avg_cash:.0f}. (Karşılaştırma için: gerçek piyasada al-tut stratejilerinin Sharpe'ı genelde 0.3-0.9 aralığındadır; "
              "sentetik testteki 3-4'lük değerler bu yüzden gerçekçi değildi.)")
+    L.append("")
+    return L
+
+
+def _factor_ic_block(sig: pd.DataFrame, factors: pd.DataFrame, step: int) -> List[str]:
+    """IC of every macro factor, AS THE MODEL USES IT (z x asset polarity),
+    vs the next 60 business days' return. Positive = the configured polarity
+    points the right way; negative = that factor currently pushes this asset
+    the WRONG way."""
+    from macro_event_interpretation import ASSET_SIGNAL_POLARITY
+    L = ["## 6) Faktör bazında IC — her makro gösterge her varlıkta doğru yönde mi?",
+         "Değer = (gösterge z-skoru × modeldeki varlık kutbu) ile sonraki 60 iş günü getirisinin sıra korelasyonu. "
+         "**Pozitif** = gösterge o varlığı doğru yöne itiyor; **negatif** = ters itiyor. "
+         "± işaretli değerlerde |t| ≥ 2 (anlamlı) olanlar **kalın**.", ""]
+    if factors is None or factors.empty or sig.empty:
+        return L + ["- Veri yok.", ""]
+    assets = sorted(sig["asset"].unique())
+    L.append("| Gösterge | " + " | ".join(a.split(" (")[0] for a in assets) + " |")
+    L.append("|---|" + "---|" * len(assets))
+    for fac in factors.columns:
+        cells = []
+        for a in assets:
+            pol = float(ASSET_SIGNAL_POLARITY.get(a, {}).get(fac, 0.0))
+            sub = sig[sig["asset"] == a][["date", "fwd60"]].dropna().set_index("date")
+            if pol == 0.0 or sub.empty:
+                cells.append("—"); continue
+            x = factors[fac].reindex(sub.index) * pol
+            ic = _spearman(x, sub["fwd60"])
+            if ic is None:
+                cells.append("—"); continue
+            tstat = ic * math.sqrt(max(1.0, len(sub) * step / 60.0))
+            cells.append(f"**{ic:+.2f}**" if abs(tstat) >= 2 else f"{ic:+.2f}")
+        L.append(f"| {fac} | " + " | ".join(cells) + " |")
     L.append("")
     return L
 
@@ -394,7 +460,8 @@ def write_report(out: Dict[str, object], path: str) -> None:
         L += _ic_block(sig, int(out["step"]))
         L += _label_block(sig)
         L += _regime_onset_block(results, px)
-        L += _portfolio_block(wts, px)
+        L += _portfolio_block(wts, px, out.get("mindd_weights"))  # type: ignore
+        L += _factor_ic_block(sig, out.get("factors"), int(out["step"]))  # type: ignore
     L += ["## Sınırlar",
           "- FRED değerleri güncel vintage (piyasa serileri nadiren revize edilir; ICSA/NFCI küçük revizyonlar alabilir).",
           "- ^MOVE ve BDRY gibi serilerin Yahoo geçmişi kısa olabilir; eksik günlerde motorun kendi geri dönüşleri çalışır.",

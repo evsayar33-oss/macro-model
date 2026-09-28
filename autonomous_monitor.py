@@ -347,9 +347,29 @@ try:
 except Exception as exc:
     print(f"[WARN] asset signal scan skipped: {exc}")
 
-target_portfolio_weights = compute_target_portfolio_weights(
-    final_id, subtype, structural, asset_signal_scores=asset_signal_scores or None
-)
+# v2.5: target = regime MINIMUM-DRAWDOWN portfolio (regime_portfolio.py),
+# identical to the Streamlit "🎯 Hedef Portföy" page (same 2500-day window).
+regime_portfolio_summary = {}
+try:
+    from regime_portfolio import active_target_weights, compute_regime_portfolios
+    _prices = {
+        "Altın (XAU)": yf_data["gold"], "Gümüş (XAG)": yf_data["xag"], "Nasdaq 100 (NQ)": yf_data["qqq"],
+        "S&P 500 (SPX)": yf_data["spx"], "Kripto (BTC)": yf_data["btc"], "Ham Petrol (WTI)": yf_data["oil"],
+        "Bakır (HG)": yf_data["hg"], "ABD Tahvili / Faiz (TLT)": yf_data["tlt"],
+    }
+    _ports = compute_regime_portfolios(results["confirmed_regime_id"], _prices, lookback_days=2500)
+    target_portfolio_weights = active_target_weights(
+        _ports, final_id, candidate_id, in_transition, structural.get("portfolio_risk_budget", 0.50)
+    )
+    regime_portfolio_summary = {
+        str(rid): {"weights": p["weights"], "trust": p["trust"], "stats": p["stats"], "ew_stats": p["ew_stats"]}
+        for rid, p in _ports.get("portfolios", {}).items()
+    }
+except Exception as exc:
+    print(f"[WARN] regime min-drawdown portfolio failed, using legacy weights: {exc}")
+    target_portfolio_weights = compute_target_portfolio_weights(
+        final_id, subtype, structural, asset_signal_scores=asset_signal_scores or None
+    )
 asset_snapshot = {}
 for asset in ASSETS:
     indicator_weights = get_dynamic_asset_weights(asset, final_id, continuum_probs, in_transition=in_transition)
@@ -413,6 +433,7 @@ current_state = {
     },
     "asset_allocation_snapshot": asset_snapshot,
     "asset_signals": asset_signals,
+    "regime_min_drawdown_portfolios": regime_portfolio_summary,
     "factor_scores": factor_scores_snapshot,
 }
 
