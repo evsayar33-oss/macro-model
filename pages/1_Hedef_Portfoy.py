@@ -6,6 +6,25 @@ import streamlit as st
 
 st.set_page_config(page_title="Hedef Portföy (Min Drawdown)", layout="wide")
 
+# --- Yerel modül tazeliği -------------------------------------------------
+# Streamlit Cloud, repo güncellenince sayfa betiğini yeniden çalıştırır ama
+# daha önce içe aktarılmış yardımcı modülleri (sys.modules) bellekte ESKİ
+# halleriyle tutabilir -> "ImportError: cannot import name ..." hataları.
+# Dosyası diskte değişmiş her yerel modül, bağımlılık sırasıyla yeniden yüklenir.
+import importlib as _il, os as _os, sys as _sys, time as _time
+for _name in ("asset_regime_weights", "macro_event_interpretation", "asset_signal_engine",
+              "regime_portfolio", "macro_pipeline"):
+    _mod = _sys.modules.get(_name)
+    _f = getattr(_mod, "__file__", None) if _mod else None
+    if _mod is not None and _f and _os.path.exists(_f) and _os.path.getmtime(_f) > getattr(_mod, "__loaded_at__", 0):
+        try:
+            _mod = _il.reload(_mod)
+        except Exception:
+            pass
+    if _mod is not None:
+        _mod.__loaded_at__ = _time.time()
+
+
 from macro_pipeline import (  # noqa: E402
     fetch_asset_prices, get_live_target, render_refresh_button, run_regime_history,
 )
@@ -15,15 +34,15 @@ from regime_portfolio import CASH_KEY  # noqa: E402
 st.sidebar.header("🎯 HEDEF PORTFÖY")
 render_refresh_button()
 
-st.title("🎯 Hedef Portföy — Rejim Bazlı Minimum Drawdown")
+st.title("🎯 Hedef Portföy — Rejime Uyumlu, Düşüş Kontrollü")
 st.caption(
-    "Her makro rejim için, o rejimin geçerli olduğu tarihsel günlerde en küçük düşüşü yaşamış portföy "
-    "doğrusal programlama ile hesaplanır: amaç = ½ × Maksimum Drawdown + ½ × CDaR(%95). "
-    "Kısıtlar: açığa satış yok, tek varlığa en fazla %35, rejimdeki ortalama getiri eşit ağırlıklının "
-    "en az yarısı. Az gözlemli rejimler tüm-dönem çözümüne doğru çekilir."
+    "Öncelik minimum düşüş: 9 kurumsal strateji (risk paritesi / trend / uzun vadeli döngü × "
+    "%10 vol hedefi / rejime göre vol hedefi / düşüş freni) gerçek 10+ yıllık veride ÖRNEKLEM DIŞI yarışır; "
+    "maksimum düşüşü %12 içinde kalanlar arasından en yüksek getirili olan canlı hedef olur. "
+    "Kaldıraç ve açığa satış yok; yatırılmayan kısım nakit."
 )
 
-with st.spinner("Rejimler ve minimum drawdown portföyleri hesaplanıyor..."):
+with st.spinner("Rejim, döngü sinyalleri ve hedef portföy hesaplanıyor..."):
     live = get_live_target()
 
 if not live.get("available"):
@@ -42,6 +61,31 @@ c3.metric("Yatırılan (vol hedefli)", f"%{100 - live['target'].get(CASH_KEY, 0)
 c4.metric("Nakit", f"%{live['target'].get(CASH_KEY, 0):.0f}", f"veri: {live['as_of']}")
 
 from regime_portfolio import STRATEGY_LABELS  # noqa: E402
+from macro_pipeline import get_cycle_signals  # noqa: E402
+
+st.markdown("## 🔄 Uzun Vadeli Döngü Sinyalleri (dipten al-unut / tepeden sat-unut)")
+st.caption("Her varlık kendi 2-3 yıllık değer ortalamasına göre ne kadar ucuz/pahalı? Dip/tepe bantları varlığın kendi "
+           "geçmişinden otomatik uyarlanır; dönüş teyidi ve parametreler her pazar örneklem dışı yarışla yeniden seçilir. "
+           "Tahvil (TLT) bu motorun dışında: faiz modeli + trend kuralı geçerli.")
+try:
+    _cyc = get_cycle_signals()
+    _crow = []
+    for a, c in _cyc.items():
+        if not c.get("applicable", True):
+            _crow.append({"Varlık": a, "Uzun vadeli sinyal": c["label"], "Değer z": "—", "Bant konumu": "—",
+                          "Son sinyal": "—"})
+            continue
+        bp = c.get("band_position")
+        _crow.append({
+            "Varlık": a, "Uzun vadeli sinyal": c.get("label", "—"),
+            "Değer z": f"{c['value_z']:+.2f}" if c.get("value_z") is not None else "—",
+            "Bant konumu": "—" if bp is None or not np.isfinite(bp) else f"%{bp * 100:.0f} (0=dip, 100=tepe)",
+            "Son sinyal": f"{c['last_event']} · {c['last_event_date']}" if c.get("last_event") else "henüz yok",
+        })
+    st.dataframe(pd.DataFrame(_crow), use_container_width=True, hide_index=True)
+except Exception as _exc:
+    st.caption(f"Döngü sinyalleri hesaplanamadı: {_exc}")
+
 st.markdown("## 🏆 Strateji Seçimi (örneklem dışı yarış)")
 _scores = (live.get("strategy_scores") or {}).get("strategies", {})
 st.success(f"Canlı strateji: **{STRATEGY_LABELS.get(live['strategy'], live['strategy'])}**"
@@ -53,11 +97,13 @@ for k, lbl in STRATEGY_LABELS.items():
     _rows.append({"Strateji": ("🏆 " if k == live["strategy"] else "") + lbl,
                   "Yıllık getiri": f"%{sc['cagr']*100:+.1f}" if sc else "—",
                   "Maks. düşüş": f"%{sc['max_dd']*100:.1f}" if sc else "—",
-                  "Sharpe": f"{sc['sharpe']:.2f}" if sc else "—",
+                  "Sharpe": f"{sc['sharpe']:.2f}" if sc and sc.get('sharpe') is not None else "—",
+                  "Kazançlı ay": f"%{sc['win_month']*100:.0f}" if sc and sc.get('win_month') is not None else "—",
+                  "Kazançlı yıl": f"%{sc['win_year']*100:.0f}" if sc and sc.get('win_year') is not None else "—",
                   "Calmar": f"{sc['calmar']:.2f}" if sc and sc.get('calmar') is not None else "—"})
 st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
 st.caption("Değerler örneklem dışıdır: her strateji geçmişte her hafta yalnızca o güne kadarki veriyle karar verdi. "
-           "Tüm stratejiler %10 yıllık volatilite hedefiyle ölçeklenir (kaldıraç yok; kalan nakit).")
+           "Öncelik: maks. düşüş ≤ %12 olanlar arasında en yüksek getiri. Kaldıraç yok; kalan nakit.")
 
 with st.expander("Tüm stratejilerin güncel hedef ağırlıkları"):
     _all = live.get("all_targets", {})
