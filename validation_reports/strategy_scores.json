@@ -1,45 +1,106 @@
 {
- "generated_at": "2026-09-28T09:50:05.561250+00:00",
- "selected": "risk_parity_trend",
+ "generated_at": "2026-09-28T10:56:52.124659+00:00",
+ "selected": "rp_trend|vol10",
+ "rule": "max CAGR s.t. |MaxDD| <= 0.12",
  "strategies": {
-  "regime_calmar": {
-   "cagr": 0.06633272066625917,
-   "vol": 0.12108933147389583,
-   "sharpe": 0.547799875173636,
-   "max_dd": -0.3525774007735467,
-   "calmar": 0.18813662055686697,
-   "avg_cash": 25.251354258851844
+  "rp_vt|vol10": {
+   "cagr": 0.1017000890758959,
+   "max_dd": -0.2052880909518936,
+   "calmar": 0.4954017965890086,
+   "vol": 0.09899885249143298,
+   "sharpe": 1.0272855342913867,
+   "win_month": 0.6363636363636364,
+   "win_year": 0.8181818181818182,
+   "label": "Risk paritesi · %10 vol hedefi"
   },
-  "risk_parity_vt": {
-   "cagr": 0.09670021000914941,
-   "vol": 0.1017378944521807,
-   "sharpe": 0.950483696658386,
-   "max_dd": -0.21895494305310703,
-   "calmar": 0.4416443340386017,
-   "avg_cash": 10.601049287998796
+  "rp_vt|regime_vol": {
+   "cagr": 0.09754113092610517,
+   "max_dd": -0.1634636799714424,
+   "calmar": 0.5967143951680637,
+   "vol": 0.08882443530471011,
+   "sharpe": 1.0981339829686803,
+   "win_month": 0.628099173553719,
+   "win_year": 0.8181818181818182,
+   "label": "Risk paritesi · rejime göre vol hedefi"
   },
-  "risk_parity_trend": {
-   "cagr": 0.09214650446930217,
-   "vol": 0.07886426291676576,
-   "sharpe": 1.1684190159306331,
-   "max_dd": -0.11469271352668264,
-   "calmar": 0.8034207373414771,
-   "avg_cash": 36.3784835571243
+  "rp_vt|regime_vol_ddbrake": {
+   "cagr": 0.07271822369551839,
+   "max_dd": -0.11021711470708995,
+   "calmar": 0.6597725216158343,
+   "vol": 0.07395602303848671,
+   "sharpe": 0.9832630353538052,
+   "win_month": 0.628099173553719,
+   "win_year": 0.8181818181818182,
+   "label": "Risk paritesi · rejime göre vol + düşüş freni"
   },
-  "regime_min_dd": {
-   "cagr": 0.07051711203860478,
-   "vol": 0.09942300256486447,
-   "sharpe": 0.7092635528946007,
-   "max_dd": -0.22326388687662513,
-   "calmar": 0.31584647667435933,
-   "avg_cash": 10.080524136034093
+  "rp_trend|vol10": {
+   "cagr": 0.09915278203951994,
+   "max_dd": -0.11224194666086362,
+   "calmar": 0.8833843762448963,
+   "vol": 0.07846368000994973,
+   "sharpe": 1.2636774368337897,
+   "win_month": 0.6363636363636364,
+   "win_year": 0.8181818181818182,
+   "label": "Risk paritesi + 200g trend · %10 vol hedefi"
+  },
+  "rp_trend|regime_vol": {
+   "cagr": 0.09428364008474799,
+   "max_dd": -0.10346582716097219,
+   "calmar": 0.9112539151507623,
+   "vol": 0.07497115982638057,
+   "sharpe": 1.2575987926969727,
+   "win_month": 0.6363636363636364,
+   "win_year": 0.8181818181818182,
+   "label": "Risk paritesi + 200g trend · rejime göre vol hedefi"
+  },
+  "rp_trend|regime_vol_ddbrake": {
+   "cagr": 0.08436837391888408,
+   "max_dd": -0.09050167678543608,
+   "calmar": 0.9322299532516617,
+   "vol": 0.07088373267736364,
+   "sharpe": 1.1902360489803423,
+   "win_month": 0.6033057851239669,
+   "win_year": 0.8181818181818182,
+   "label": "Risk paritesi + 200g trend · rejime göre vol + düşüş freni"
+  },
+  "cycle_rp|vol10": {
+   "cagr": 0.08610949711947957,
+   "max_dd": -0.08431206877828379,
+   "calmar": 1.0213187550399516,
+   "vol": 0.06002043929310742,
+   "sharpe": 1.434669558131144,
+   "win_month": 0.6446280991735537,
+   "win_year": 0.7272727272727273,
+   "label": "Döngü (dipten al / tepeden sat) + risk paritesi · %10 vol hedefi"
+  },
+  "cycle_rp|regime_vol": {
+   "cagr": 0.08329189481773813,
+   "max_dd": -0.08236336488851825,
+   "calmar": 1.0112735793453398,
+   "vol": 0.056693746385461465,
+   "sharpe": 1.4691548914660806,
+   "win_month": 0.628099173553719,
+   "win_year": 0.7272727272727273,
+   "label": "Döngü (dipten al / tepeden sat) + risk paritesi · rejime göre vol hedefi"
+  },
+  "cycle_rp|regime_vol_ddbrake": {
+   "cagr": 0.0726839536826156,
+   "max_dd": -0.07591535985801545,
+   "calmar": 0.9574340926336442,
+   "vol": 0.0535021915672004,
+   "sharpe": 1.3585229231464717,
+   "win_month": 0.628099173553719,
+   "win_year": 0.7272727272727273,
+   "label": "Döngü (dipten al / tepeden sat) + risk paritesi · rejime göre vol + düşüş freni"
   }
  },
  "equal_weight": {
-  "cagr": 0.137881924975515,
-  "vol": 0.2093776562692338,
-  "sharpe": 0.6585321826232302,
-  "max_dd": -0.5763956279729501,
-  "calmar": 0.23921403682469589
+  "cagr": 0.13863131786785354,
+  "max_dd": -0.5775910061819498,
+  "calmar": 0.24001640673778532,
+  "vol": 0.2100379132358896,
+  "sharpe": 0.6600299714088252,
+  "win_month": 0.6611570247933884,
+  "win_year": 0.7272727272727273
  }
 }

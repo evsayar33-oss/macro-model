@@ -1,0 +1,481 @@
+{
+ "generated_at": "2026-09-28T10:56:50.324789+00:00",
+ "assets": {
+  "Altın (XAU)": {
+   "params": {
+    "L": 504,
+    "q_low": 0.2,
+    "q_high": 0.8,
+    "confirm": false,
+    "reentry": "mean"
+   },
+   "oos": {
+    "cagr": 0.029570337910977074,
+    "max_dd": -0.10167996451993255,
+    "calmar": 0.2908177441897153,
+    "vol": 0.04936375456949327,
+    "sharpe": 0.5990293519782529,
+    "win_month": 0.08888888888888889,
+    "win_year": 0.4166666666666667
+   },
+   "buy_hold": {
+    "cagr": 0.12283069950066206,
+    "max_dd": -0.24937948049055447,
+    "calmar": 0.4925453339586791,
+    "vol": 0.16551572539510268,
+    "sharpe": 0.7421089398451587,
+    "win_month": 0.5703703703703704,
+    "win_year": 0.5833333333333334
+   },
+   "trades": {
+    "round_trips": 3,
+    "trip_win_rate": 1.0,
+    "avg_trip_return": 0.12129665919531092,
+    "sell_signals": 3,
+    "sell_hit_rate_120d": 0.6666666666666666,
+    "time_in_market": 0.1248713550600343
+   },
+   "oos_start": "2015-07-28",
+   "selections": [
+    {
+     "from": "2024-04-04",
+     "params": {
+      "L": 504,
+      "q_low": 0.2,
+      "q_high": 0.8,
+      "confirm": false,
+      "reentry": "mean"
+     }
+    },
+    {
+     "from": "2025-03-24",
+     "params": {
+      "L": 504,
+      "q_low": 0.2,
+      "q_high": 0.8,
+      "confirm": false,
+      "reentry": "mean"
+     }
+    },
+    {
+     "from": "2026-03-11",
+     "params": {
+      "L": 504,
+      "q_low": 0.2,
+      "q_high": 0.8,
+      "confirm": false,
+      "reentry": "mean"
+     }
+    }
+   ]
+  },
+  "Gümüş (XAG)": {
+   "params": {
+    "L": 504,
+    "q_low": 0.1,
+    "q_high": 0.9,
+    "confirm": false,
+    "reentry": "mean"
+   },
+   "oos": {
+    "cagr": 0.06363964041272796,
+    "max_dd": -0.1992318150589042,
+    "calmar": 0.3194250897825354,
+    "vol": 0.12745632396743528,
+    "sharpe": 0.499305475254313,
+    "win_month": 0.1259259259259259,
+    "win_year": 0.3333333333333333
+   },
+   "buy_hold": {
+    "cagr": 0.13277891155420218,
+    "max_dd": -0.5142683531420464,
+    "calmar": 0.2581899328297326,
+    "vol": 0.3311889269874171,
+    "sharpe": 0.400915914556669,
+    "win_month": 0.5185185185185185,
+    "win_year": 0.5833333333333334
+   },
+   "trades": {
+    "round_trips": 3,
+    "trip_win_rate": 1.0,
+    "avg_trip_return": 0.2775882204025446,
+    "sell_signals": 3,
+    "sell_hit_rate_120d": 0.0,
+    "time_in_market": 0.18181818181818182
+   },
+   "oos_start": "2015-07-28",
+   "selections": [
+    {
+     "from": "2024-04-04",
+     "params": {
+      "L": 504,
+      "q_low": 0.1,
+      "q_high": 0.9,
+      "confirm": false,
+      "reentry": "mean"
+     }
+    },
+    {
+     "from": "2025-03-24",
+     "params": {
+      "L": 504,
+      "q_low": 0.1,
+      "q_high": 0.9,
+      "confirm": false,
+      "reentry": "mean"
+     }
+    },
+    {
+     "from": "2026-03-11",
+     "params": {
+      "L": 504,
+      "q_low": 0.1,
+      "q_high": 0.9,
+      "confirm": false,
+      "reentry": "mean"
+     }
+    }
+   ]
+  },
+  "Nasdaq 100 (NQ)": {
+   "params": {
+    "L": 756,
+    "q_low": 0.1,
+    "q_high": 0.9,
+    "confirm": false,
+    "reentry": "bottom"
+   },
+   "oos": {
+    "cagr": 0.148221933683782,
+    "max_dd": -0.22883306921571056,
+    "calmar": 0.6477295182544613,
+    "vol": 0.1780297395125046,
+    "sharpe": 0.8325683904815863,
+    "win_month": 0.4888888888888889,
+    "win_year": 0.6666666666666666
+   },
+   "buy_hold": {
+    "cagr": 0.1787459881795641,
+    "max_dd": -0.3561721518084676,
+    "calmar": 0.5018527902082731,
+    "vol": 0.21821299976916567,
+    "sharpe": 0.8191353785917826,
+    "win_month": 0.6444444444444445,
+    "win_year": 0.8333333333333334
+   },
+   "trades": {
+    "round_trips": 3,
+    "trip_win_rate": 1.0,
+    "avg_trip_return": 0.5420665086795337,
+    "sell_signals": 4,
+    "sell_hit_rate_120d": 0.0,
+    "time_in_market": 0.697770154373928
+   },
+   "oos_start": "2015-07-27",
+   "selections": [
+    {
+     "from": "2024-04-03",
+     "params": {
+      "L": 756,
+      "q_low": 0.1,
+      "q_high": 0.9,
+      "confirm": false,
+      "reentry": "bottom"
+     }
+    },
+    {
+     "from": "2025-03-21",
+     "params": {
+      "L": 756,
+      "q_low": 0.1,
+      "q_high": 0.9,
+      "confirm": false,
+      "reentry": "bottom"
+     }
+    },
+    {
+     "from": "2026-03-10",
+     "params": {
+      "L": 756,
+      "q_low": 0.15,
+      "q_high": 0.85,
+      "confirm": false,
+      "reentry": "bottom"
+     }
+    }
+   ]
+  },
+  "S&P 500 (SPX)": {
+   "params": {
+    "L": 504,
+    "q_low": 0.15,
+    "q_high": 0.85,
+    "confirm": true,
+    "reentry": "bottom"
+   },
+   "oos": {
+    "cagr": 0.07108125288443135,
+    "max_dd": -0.3410474689324391,
+    "calmar": 0.2084204087687055,
+    "vol": 0.1444330842828498,
+    "sharpe": 0.49213968695170796,
+    "win_month": 0.42962962962962964,
+    "win_year": 0.5833333333333334
+   },
+   "buy_hold": {
+    "cagr": 0.11996892449872831,
+    "max_dd": -0.3410474689324392,
+    "calmar": 0.35176606023278806,
+    "vol": 0.17510289114585623,
+    "sharpe": 0.6851338873599595,
+    "win_month": 0.674074074074074,
+    "win_year": 0.75
+   },
+   "trades": {
+    "round_trips": 3,
+    "trip_win_rate": 1.0,
+    "avg_trip_return": 0.2082362485317529,
+    "sell_signals": 4,
+    "sell_hit_rate_120d": 0.0,
+    "time_in_market": 0.6120068610634648
+   },
+   "oos_start": "2015-07-27",
+   "selections": [
+    {
+     "from": "2024-04-03",
+     "params": {
+      "L": 504,
+      "q_low": 0.15,
+      "q_high": 0.85,
+      "confirm": true,
+      "reentry": "bottom"
+     }
+    },
+    {
+     "from": "2025-03-21",
+     "params": {
+      "L": 504,
+      "q_low": 0.15,
+      "q_high": 0.85,
+      "confirm": true,
+      "reentry": "bottom"
+     }
+    },
+    {
+     "from": "2026-03-10",
+     "params": {
+      "L": 504,
+      "q_low": 0.15,
+      "q_high": 0.85,
+      "confirm": true,
+      "reentry": "bottom"
+     }
+    }
+   ]
+  },
+  "Kripto (BTC)": {
+   "params": {
+    "L": 756,
+    "q_low": 0.2,
+    "q_high": 0.8,
+    "confirm": false,
+    "reentry": "bottom"
+   },
+   "oos": {
+    "cagr": 0.426433229663034,
+    "max_dd": -0.5986844074377358,
+    "calmar": 0.7122838416455397,
+    "vol": 0.5218781581441316,
+    "sharpe": 0.8171126210368479,
+    "win_month": 0.5057471264367817,
+    "win_year": 0.5
+   },
+   "buy_hold": {
+    "cagr": 0.33770077984058733,
+    "max_dd": -0.7663456370856909,
+    "calmar": 0.4406637990722017,
+    "vol": 0.5886668407359953,
+    "sharpe": 0.5736704642958461,
+    "win_month": 0.5517241379310345,
+    "win_year": 0.5
+   },
+   "trades": {
+    "round_trips": 1,
+    "trip_win_rate": 1.0,
+    "avg_trip_return": 1.7382809740047085,
+    "sell_signals": 1,
+    "sell_hit_rate_120d": 0.0,
+    "time_in_market": 0.8557743480574774
+   },
+   "oos_start": "2019-07-17",
+   "selections": [
+    {
+     "from": "2024-05-14",
+     "params": {
+      "L": 756,
+      "q_low": 0.2,
+      "q_high": 0.8,
+      "confirm": false,
+      "reentry": "bottom"
+     }
+    },
+    {
+     "from": "2025-05-01",
+     "params": {
+      "L": 756,
+      "q_low": 0.2,
+      "q_high": 0.8,
+      "confirm": false,
+      "reentry": "bottom"
+     }
+    },
+    {
+     "from": "2026-04-20",
+     "params": {
+      "L": 756,
+      "q_low": 0.2,
+      "q_high": 0.8,
+      "confirm": false,
+      "reentry": "bottom"
+     }
+    }
+   ]
+  },
+  "Ham Petrol (WTI)": {
+   "params": {
+    "L": 756,
+    "q_low": 0.1,
+    "q_high": 0.9,
+    "confirm": true,
+    "reentry": "mean"
+   },
+   "oos": {
+    "cagr": 0.050271463318525056,
+    "max_dd": -0.47189203061872853,
+    "calmar": 0.10653170652746742,
+    "vol": 0.23215936896708356,
+    "sharpe": 0.2165385939072428,
+    "win_month": 0.15555555555555556,
+    "win_year": 0.25
+   },
+   "buy_hold": {
+    "cagr": 0.06319614557070907,
+    "max_dd": -0.8689962079684384,
+    "calmar": 0.0727231545905714,
+    "vol": 0.4782326366885492,
+    "sharpe": 0.13214519612944317,
+    "win_month": 0.5555555555555556,
+    "win_year": 0.5833333333333334
+   },
+   "trades": {
+    "round_trips": 3,
+    "trip_win_rate": 0.3333333333333333,
+    "avg_trip_return": 0.33483542464429433,
+    "sell_signals": 4,
+    "sell_hit_rate_120d": 0.3333333333333333,
+    "time_in_market": 0.286106346483705
+   },
+   "oos_start": "2015-07-28",
+   "selections": [
+    {
+     "from": "2024-04-04",
+     "params": {
+      "L": 756,
+      "q_low": 0.1,
+      "q_high": 0.9,
+      "confirm": true,
+      "reentry": "mean"
+     }
+    },
+    {
+     "from": "2025-03-24",
+     "params": {
+      "L": 756,
+      "q_low": 0.1,
+      "q_high": 0.9,
+      "confirm": true,
+      "reentry": "bottom"
+     }
+    },
+    {
+     "from": "2026-03-11",
+     "params": {
+      "L": 756,
+      "q_low": 0.1,
+      "q_high": 0.9,
+      "confirm": true,
+      "reentry": "mean"
+     }
+    }
+   ]
+  },
+  "Bakır (HG)": {
+   "params": {
+    "L": 756,
+    "q_low": 0.1,
+    "q_high": 0.9,
+    "confirm": false,
+    "reentry": "mean"
+   },
+   "oos": {
+    "cagr": 0.05578063406552447,
+    "max_dd": -0.2308067918975122,
+    "calmar": 0.24167674446206674,
+    "vol": 0.13832308668892146,
+    "sharpe": 0.4032633698449128,
+    "win_month": 0.22962962962962963,
+    "win_year": 0.3333333333333333
+   },
+   "buy_hold": {
+    "cagr": 0.09372283162743877,
+    "max_dd": -0.35636200034999055,
+    "calmar": 0.262998949201631,
+    "vol": 0.23869450564374628,
+    "sharpe": 0.39264762871132425,
+    "win_month": 0.5555555555555556,
+    "win_year": 0.75
+   },
+   "trades": {
+    "round_trips": 2,
+    "trip_win_rate": 1.0,
+    "avg_trip_return": 0.4067293342424134,
+    "sell_signals": 3,
+    "sell_hit_rate_120d": 0.3333333333333333,
+    "time_in_market": 0.3653516295025729
+   },
+   "oos_start": "2015-07-28",
+   "selections": [
+    {
+     "from": "2024-04-04",
+     "params": {
+      "L": 756,
+      "q_low": 0.1,
+      "q_high": 0.9,
+      "confirm": false,
+      "reentry": "mean"
+     }
+    },
+    {
+     "from": "2025-03-24",
+     "params": {
+      "L": 756,
+      "q_low": 0.1,
+      "q_high": 0.9,
+      "confirm": false,
+      "reentry": "mean"
+     }
+    },
+    {
+     "from": "2026-03-11",
+     "params": {
+      "L": 756,
+      "q_low": 0.1,
+      "q_high": 0.9,
+      "confirm": false,
+      "reentry": "mean"
+     }
+    }
+   ]
+  }
+ }
+}
