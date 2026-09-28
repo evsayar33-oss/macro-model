@@ -239,6 +239,21 @@ def asset_factor_weights(asset: str, base_weights: Dict[str, float]) -> Dict[str
     return {k: v / tot for k, v in w.items()}
 
 
+RELIABILITY_FILE = "validation_reports/signal_reliability.json"
+
+
+def load_signal_reliability(path: str = RELIABILITY_FILE) -> Dict[str, Dict[str, float]]:
+    """{asset: {"macro": r, "market": r, "structure": r}} written by the weekly
+    real-data validation. Missing file -> {} (every component weight 1.0)."""
+    import json
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            raw = json.load(fh).get("assets", {})
+        return {a: {c: float(v.get("reliability", 1.0)) for c, v in comps.items()} for a, comps in raw.items()}
+    except Exception:
+        return {}
+
+
 def compute_all_asset_signals(
     factor_scores: Dict[str, float],
     asset_prices: Dict[str, pd.Series],
@@ -248,6 +263,7 @@ def compute_all_asset_signals(
     regime_probs: Dict[str, float],
     in_transition: bool,
     as_of=None,
+    use_reliability: bool = True,
 ) -> Dict[str, Dict[str, Any]]:
     """Per-asset signal state exactly as the app's 8-asset scanner computes it."""
     from macro_event_interpretation import (
@@ -257,11 +273,13 @@ def compute_all_asset_signals(
     from asset_regime_weights import ASSETS, get_dynamic_asset_weights
 
     mults = get_macro_interpretation_asset_multipliers(confirmed_regime_id, subtype)
+    reliability = load_signal_reliability() if use_reliability else {}
     out = {}
     for asset in ASSETS:
         weights = asset_factor_weights(asset, get_dynamic_asset_weights(asset, confirmed_regime_id, regime_probs, in_transition))
         out[asset] = compute_asset_signal_state(
             asset, factor_scores, weights, _slice(asset_prices.get(asset), as_of),
             structural_state, confirmed_regime_id, mults.get(asset, 1.0),
+            reliability=reliability.get(asset),
         )
     return out

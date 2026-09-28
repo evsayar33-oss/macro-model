@@ -57,6 +57,17 @@ def _cdar(path_returns: np.ndarray, alpha: float) -> float:
     return float(-np.mean(np.sort(dd)[-k:]))
 
 
+def _block_path(returns: pd.DataFrame, block: int = 5) -> pd.DataFrame:
+    """v2.7: sums consecutive 5-day chunks of the (regime) return path before
+    the LP. Drawdowns measured weekly instead of daily are what a strategic
+    allocation cares about, and the LP gets ~5x smaller -- this is what was
+    driving the Streamlit CPU throttling."""
+    if len(returns) <= 3 * block:
+        return returns
+    g = np.arange(len(returns)) // block
+    return returns.groupby(g).sum()
+
+
 def optimise_min_drawdown(returns: pd.DataFrame, cap: float = DEFAULT_CAP, alpha: float = DEFAULT_ALPHA,
                           w_maxdd: float = 0.5) -> Optional[np.ndarray]:
     """LP on uncompounded cumulative returns (standard, convex formulation).
@@ -64,7 +75,7 @@ def optimise_min_drawdown(returns: pd.DataFrame, cap: float = DEFAULT_CAP, alpha
     from scipy.optimize import linprog
     from scipy.sparse import lil_matrix
 
-    R = returns.to_numpy(dtype=float)
+    R = _block_path(returns).to_numpy(dtype=float)
     T, n = R.shape
     if T < 5 or n == 0:
         return None
@@ -218,13 +229,13 @@ TREND_LOOKBACK = 200         # days for the trend filter
 REGIME_DD_LIMIT = 0.10       # max drawdown allowed on a regime path (Calmar strategy)
 STRATEGY_FILE = _os.path.join("validation_reports", "strategy_scores.json")
 
-STRATEGY_LABELS = {
+LEGACY_STRATEGY_LABELS = {
     "regime_calmar": "Rejim Calmar (rejimde maks. getiri, maks. DD ≤ %10) + vol hedefi",
     "risk_parity_vt": "Risk paritesi + %10 volatilite hedefi (düşeni alarak dengeler)",
     "risk_parity_trend": "Risk paritesi + 200g trend filtresi + %10 vol hedefi",
     "regime_min_dd": "Rejim minimum drawdown + %10 vol hedefi",
 }
-DEFAULT_STRATEGY = "risk_parity_vt"
+DEFAULT_STRATEGY = "cycle_rp|regime_vol_ddbrake"
 
 
 def optimise_max_return_dd_limit(returns: pd.DataFrame, dd_limit: float = REGIME_DD_LIMIT,
@@ -232,9 +243,9 @@ def optimise_max_return_dd_limit(returns: pd.DataFrame, dd_limit: float = REGIME
     """Maximise mean return subject to MaxDD(path) <= dd_limit (LP, uncompounded)."""
     from scipy.optimize import linprog
     from scipy.sparse import lil_matrix
-    R = returns.to_numpy(dtype=float)
+    R = _block_path(returns).to_numpy(dtype=float)
     T, n = R.shape
-    if T < 20 or n == 0:
+    if T < 8 or n == 0:
         return None
     C = np.cumsum(R, axis=0)
     nv = n + T
@@ -284,7 +295,7 @@ def _inverse_vol(rets: pd.DataFrame, cap: float = DEFAULT_CAP) -> np.ndarray:
     return w
 
 
-def strategy_weights(strategy: str, asset_prices: Dict[str, pd.Series], confirmed_regime: Optional[pd.Series] = None,
+def legacy_strategy_weights(strategy: str, asset_prices: Dict[str, pd.Series], confirmed_regime: Optional[pd.Series] = None,
                      confirmed_id: int = 0, candidate_id: int = 0, in_transition: bool = False,
                      as_of=None, regime_cache: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
     """Target weights in percent (incl. cash) for one strategy, using data <= as_of only."""
@@ -352,7 +363,7 @@ def load_strategy_scores(path: str = STRATEGY_FILE) -> Dict[str, Any]:
         return {}
 
 
-def selected_strategy(path: str = STRATEGY_FILE) -> str:
+def _legacy_selected_strategy(path: str = STRATEGY_FILE) -> str:
     """Best out-of-sample Calmar from the latest validation run (self-improving
     selection); DEFAULT_STRATEGY until a validation run has produced scores."""
     scores = load_strategy_scores(path).get("strategies", {})
@@ -360,3 +371,156 @@ def selected_strategy(path: str = STRATEGY_FILE) -> str:
     if not valid:
         return DEFAULT_STRATEGY
     return max(valid, key=lambda k: valid[k]["calmar"])
+
+
+# ======================================================================
+# v3.0 — REGIME-ADAPTIVE, DRAWDOWN-CONTROLLED STRATEGY FRAMEWORK
+# ======================================================================
+# One vectorised simulator is used BOTH by the weekly real-data validation and
+# by the live page / monitor, so the live weights are exactly what was tested.
+#
+# base  (what to hold)
+#   rp_vt     risk parity (inverse volatility, 35% cap), always invested
+#   rp_trend  risk parity, asset held only above its 200-day average
+#   cycle_rp  risk parity, each asset held only while its long-horizon cycle
+#             engine (cycle_engine.py) says IN ("al-unut" at bottoms,
+#             "sat-unut" at tops); the bond (TLT) uses the 200-day trend rule
+# overlay (how much risk)
+#   vol10               10% annual volatility target
+#   regime_vol          volatility target set by the macro regime: shocks cut
+#                       risk (6-7%), neutral 10%, liquidity rally 12%
+#   regime_vol_ddbrake  regime_vol + DRAWDOWN BRAKE: from 4% below the
+#                       portfolio's own peak, exposure is cut linearly down to
+#                       25% at 12% drawdown and restored as it recovers
+# Never levered; everything not invested is cash.
+
+REGIME_VOL_TARGETS = {0: 0.10, 1: 0.07, 2: 0.06, 3: 0.07, 4: 0.06, 5: 0.12}
+DD_BRAKE_START, DD_BRAKE_FULL, DD_BRAKE_FLOOR = 0.04, 0.12, 0.25
+MAX_DD_BUDGET = 0.12          # selection: highest return among strategies within this max drawdown
+BOND_ASSET = "ABD Tahvili / Faiz (TLT)"
+
+_BASE_LABELS = {"rp_vt": "Risk paritesi", "rp_trend": "Risk paritesi + 200g trend",
+                "cycle_rp": "Döngü (dipten al / tepeden sat) + risk paritesi"}
+_OVERLAY_LABELS = {"vol10": "%10 vol hedefi", "regime_vol": "rejime göre vol hedefi",
+                   "regime_vol_ddbrake": "rejime göre vol + düşüş freni"}
+STRATEGY_LABELS = {f"{b}|{o}": f"{bl} · {ol}" for b, bl in _BASE_LABELS.items() for o, ol in _OVERLAY_LABELS.items()}
+
+
+def build_price_panel(asset_prices: Dict[str, pd.Series], as_of=None) -> pd.DataFrame:
+    px = pd.DataFrame({a: s for a, s in asset_prices.items() if s is not None and len(s) > 30}).sort_index()
+    px.index = pd.to_datetime(px.index)
+    if getattr(px.index, "tz", None) is not None:
+        px.index = px.index.tz_localize(None)
+    px = px.resample("B").last().ffill()
+    if as_of is not None:
+        px = px[px.index <= pd.Timestamp(as_of)]
+    return px
+
+
+def live_cycle_in(asset_prices: Dict[str, pd.Series], index: pd.DatetimeIndex,
+                  params_by_asset: Optional[Dict[str, Dict[str, Any]]] = None) -> pd.DataFrame:
+    from cycle_engine import EXCLUDED_ASSETS, DEFAULT_PARAMS, cycle_states, load_cycle_params
+    params_by_asset = params_by_asset if params_by_asset is not None else load_cycle_params()
+    out = {}
+    for a, s in asset_prices.items():
+        if a in EXCLUDED_ASSETS or s is None or len(s) < 300:
+            continue
+        st = cycle_states(s, params_by_asset.get(a, DEFAULT_PARAMS))
+        out[a] = st["in_market"].reindex(index, method="ffill").fillna(1)
+    return pd.DataFrame(out, index=index)
+
+
+def simulate_strategy(name: str, px: pd.DataFrame, regime: Optional[pd.Series] = None,
+                      cycle_in: Optional[pd.DataFrame] = None, rebalance_every: int = 5,
+                      cost_bps: float = 5.0, warmup: int = 200) -> Dict[str, Any]:
+    base, overlay = name.split("|")
+    rets = px.pct_change().fillna(0.0).clip(-0.5, 0.5)
+    assets = list(px.columns); n = len(assets)
+    reg = (regime.copy() if regime is not None else pd.Series(0, index=px.index))
+    reg.index = pd.to_datetime(reg.index)
+    reg = reg.reindex(px.index, method="ffill").fillna(0).astype(int)
+    ma200 = px.rolling(200, min_periods=200).mean()
+    W = pd.DataFrame(np.nan, index=px.index, columns=assets)
+    R = rets.to_numpy(); P = px.to_numpy(); M = ma200.to_numpy()
+    CI = cycle_in.reindex(px.index).ffill() if cycle_in is not None else None
+    for i in range(warmup, len(px), rebalance_every):
+        win = R[max(0, i - VOL_LOOKBACK + 1): i + 1]
+        vol = win.std(axis=0) * np.sqrt(252)
+        inv = 1.0 / np.maximum(vol, 1e-4); w = inv / inv.sum()
+        for _ in range(10):
+            over = w > DEFAULT_CAP
+            if not over.any():
+                break
+            ex = (w[over] - DEFAULT_CAP).sum(); w[over] = DEFAULT_CAP; w[~over] += ex * w[~over] / w[~over].sum()
+        if base == "rp_trend":
+            w = np.where(P[i] > M[i], w, 0.0)
+        elif base == "cycle_rp":
+            keep = np.ones(n)
+            for j, a in enumerate(assets):
+                if a == BOND_ASSET or CI is None or a not in CI.columns:
+                    keep[j] = 1.0 if (np.isfinite(M[i, j]) and P[i, j] > M[i, j]) else 0.0
+                else:
+                    v = CI[a].iloc[i]
+                    keep[j] = 1.0 if (not np.isfinite(v)) or v >= 0.5 else 0.0
+            w = w * keep
+        target = REGIME_VOL_TARGETS.get(int(reg.iloc[i]), 0.10) if overlay.startswith("regime_vol") else 0.10
+        if w.sum() > 0:
+            cov = np.cov(win.T) * 252
+            pv = float(np.sqrt(max(w @ cov @ w, 1e-12)))
+            w = w * min(1.0, target / pv)
+        W.iloc[i] = w
+    W = W.ffill().fillna(0.0)
+    held = W.shift(1).fillna(0.0)
+    turnover = held.diff().abs().sum(axis=1).fillna(0.0)
+    r = (held * rets).sum(axis=1) - turnover * cost_bps / 1e4
+    scale = pd.Series(1.0, index=r.index)
+    if overlay.endswith("ddbrake"):
+        nav, peak, out = 1.0, 1.0, np.empty(len(r)); sc = np.empty(len(r))
+        rv = r.to_numpy()
+        for k in range(len(rv)):
+            dd = 1.0 - nav / peak
+            m = float(np.clip(1.0 - max(0.0, dd - DD_BRAKE_START) / (DD_BRAKE_FULL - DD_BRAKE_START), DD_BRAKE_FLOOR, 1.0))
+            sc[k] = m; out[k] = m * rv[k]
+            nav *= (1 + out[k]); peak = max(peak, nav)
+        r = pd.Series(out, index=r.index); scale = pd.Series(sc, index=r.index)
+        # exposure for TOMORROW, from today's drawdown
+        dd_now = 1.0 - nav / peak
+        next_scale = float(np.clip(1.0 - max(0.0, dd_now - DD_BRAKE_START) / (DD_BRAKE_FULL - DD_BRAKE_START), DD_BRAKE_FLOOR, 1.0))
+    else:
+        next_scale = 1.0
+    last_w = W.iloc[-1].to_numpy() * next_scale
+    weights = {a: float(last_w[j] * 100.0) for j, a in enumerate(assets)}
+    weights[CASH_KEY] = float(100.0 - sum(weights.values()))
+    r = r.iloc[warmup:]
+    return {"returns": r, "weights": weights, "brake_scale": next_scale, "scale_history": scale.iloc[warmup:]}
+
+
+def strategy_weights(strategy: str, asset_prices: Dict[str, pd.Series], confirmed_regime: Optional[pd.Series] = None,
+                     confirmed_id: int = 0, candidate_id: int = 0, in_transition: bool = False,
+                     as_of=None, regime_cache: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
+    """Live/current target weights (percent, incl. cash) for a v3.0 strategy."""
+    if strategy not in STRATEGY_LABELS:
+        return legacy_strategy_weights(strategy, asset_prices, confirmed_regime, confirmed_id,
+                                       candidate_id, in_transition, as_of, regime_cache)
+    px = build_price_panel(asset_prices, as_of)
+    px = px[px.index >= px.index.max() - pd.Timedelta(days=5 * 365)]
+    ci = live_cycle_in(asset_prices, px.index) if strategy.startswith("cycle_rp") else None
+    return simulate_strategy(strategy, px, confirmed_regime, ci)["weights"]
+
+
+def selected_strategy(path: str = STRATEGY_FILE) -> str:
+    """Priority = minimum drawdown: among strategies whose OUT-OF-SAMPLE max
+    drawdown is within MAX_DD_BUDGET, the one with the highest annual return;
+    if none qualifies, the one with the smallest drawdown."""
+    data = load_strategy_scores(path)
+    sel = data.get("selected")
+    scores = data.get("strategies", {})
+    if sel in STRATEGY_LABELS:
+        return sel
+    valid = {k: v for k, v in scores.items() if k in STRATEGY_LABELS and v.get("max_dd") is not None}
+    if not valid:
+        return DEFAULT_STRATEGY
+    ok = {k: v for k, v in valid.items() if abs(v["max_dd"]) <= MAX_DD_BUDGET}
+    if ok:
+        return max(ok, key=lambda k: ok[k]["cagr"])
+    return max(valid, key=lambda k: valid[k]["max_dd"])

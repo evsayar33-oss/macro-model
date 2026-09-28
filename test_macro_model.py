@@ -117,3 +117,34 @@ def test_tlt_high_real_yield_is_supportive_value_factor():
     fs = compute_factor_scores({"dfii10": s})
     assert fs[REAL_YIELD_VALUE_NAME]["z"] > 1.0          # cheap bonds -> positive for TLT
     assert abs(fs[REAL_YIELD_NAME]["z"]) < 1.0            # no further rise -> no momentum penalty
+
+
+def test_cycle_engine_sells_top_buys_bottom_and_holds():
+    from cycle_engine import cycle_states
+    idx = pd.bdate_range("2008-01-01", periods=4000)
+    t = np.arange(len(idx))
+    p = pd.Series(100 * np.exp(0.5 * np.sin(2 * np.pi * t / 900)), idx)      # clean multi-year cycle
+    st = cycle_states(p, {"L": 504, "q_low": 0.15, "q_high": 0.85, "confirm": True, "reentry": "bottom"})
+    sells = st[st["event"] == "SAT-UNUT"]; buys = st[st["event"] == "AL-UNUT"]
+    assert len(sells) >= 2 and len(buys) >= 2
+    # sells happen in the upper part of the cycle, buys in the lower part
+    assert (np.sin(2 * np.pi * np.searchsorted(idx, sells.index) / 900) > 0).mean() > 0.7
+    assert (np.sin(2 * np.pi * np.searchsorted(idx, buys.index) / 900) < 0).mean() > 0.7
+    # "al-unut": far fewer position changes than days
+    assert st["in_market"].diff().abs().sum() < 20
+
+
+def test_bond_excluded_from_cycle_engine():
+    from cycle_engine import current_cycle_signal
+    out = current_cycle_signal("ABD Tahvili / Faiz (TLT)", pd.Series([1.0, 2.0]))
+    assert out["applicable"] is False
+
+
+def test_drawdown_brake_reduces_max_drawdown():
+    from regime_portfolio import simulate_strategy, build_price_panel
+    from cycle_engine import perf_stats
+    idx, prices = _toy_prices(n=1500, seed=5)
+    px = build_price_panel(prices)
+    a = perf_stats(simulate_strategy("rp_vt|vol10", px)["returns"])
+    b = perf_stats(simulate_strategy("rp_vt|regime_vol_ddbrake", px)["returns"])
+    assert b["max_dd"] >= a["max_dd"] - 1e-9

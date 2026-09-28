@@ -144,28 +144,85 @@ def fetch_asset_prices() -> Dict[str, pd.Series]:
     return {a: fetch_yf_data(t) for a, t in ASSET_TICKERS.items()}
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
 def get_regime_portfolios() -> Dict[str, Any]:
     from regime_portfolio import compute_regime_portfolios
+    persisted = _monitor_state().get("regime_min_drawdown_portfolios") or {}
+    if persisted:
+        ports = {int(k): v for k, v in persisted.items()}
+        first = next(iter(ports.values()))
+        return {"assets": list(first.get("weights", {}).keys()), "portfolios": ports, "all": {}}
     hist = run_regime_history()
     if hist.empty:
         return {"assets": [], "portfolios": {}, "all": {}}
     return compute_regime_portfolios(hist['confirmed_regime_id'], fetch_asset_prices())
 
 
-@st.cache_data(ttl=900, show_spinner=False)
-def get_all_strategy_targets(confirmed: int, candidate: int, in_transition: bool) -> Dict[str, Dict[str, float]]:
-    from regime_portfolio import STRATEGY_LABELS, strategy_weights
+def _monitor_state() -> Dict[str, Any]:
+    """Latest state persisted by the GitHub Actions monitor (runs every 2h
+    with the same code). Heavy LP optimisations are taken from here so the
+    Streamlit app does not burn CPU (Streamlit Cloud throttling)."""
+    import json
+    try:
+        with open("backtest_summary.json", "r", encoding="utf-8") as fh:
+            return (json.load(fh).get("autonomous_daily_monitor") or {}).get("current") or {}
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def fetch_yf_long(ticker: str) -> pd.Series:
+    """Long daily history (up to 20y) for the multi-year cycle engine."""
+    import yfinance as yf
+    try:
+        d = yf.download(ticker, period="20y", interval="1d", progress=False, auto_adjust=False)
+        if d is None or d.empty:
+            return fetch_yf_data(ticker)
+        s = d["Close"] if "Close" in d.columns else d.iloc[:, 0]
+        if isinstance(s, pd.DataFrame):
+            s = s.iloc[:, 0]
+        s = pd.Series(s.values.flatten(), index=pd.to_datetime(s.index))
+        if s.index.tz is not None:
+            s.index = s.index.tz_localize(None)
+        return s.resample("B").ffill().dropna().astype(float)
+    except Exception:
+        return fetch_yf_data(ticker)
+
+
+def fetch_asset_prices_long() -> Dict[str, pd.Series]:
+    return {a: fetch_yf_long(t) for a, t in ASSET_TICKERS.items()}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_cycle_signals() -> Dict[str, Dict[str, Any]]:
+    """Long-horizon al-unut / sat-unut state per asset (cycle_engine.py)."""
+    from cycle_engine import current_cycle_signal, load_cycle_params
+    params = load_cycle_params()
+    return {a: current_cycle_signal(a, s, params.get(a)) for a, s in fetch_asset_prices_long().items()}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _live_strategy_target(strategy: str, confirmed: int, candidate: int, in_transition: bool) -> Dict[str, float]:
+    from regime_portfolio import strategy_weights
     hist = run_regime_history()
-    prices = fetch_asset_prices()
-    cache: Dict[str, Any] = {}
-    out = {}
-    for name in STRATEGY_LABELS:
-        try:
-            out[name] = strategy_weights(name, prices, hist['confirmed_regime_id'], confirmed, candidate,
-                                         in_transition, regime_cache=cache)
-        except Exception:
-            pass
+    return strategy_weights(strategy, fetch_asset_prices_long(), hist['confirmed_regime_id'],
+                            confirmed, candidate, in_transition)
+
+
+def get_all_strategy_targets(confirmed: int, candidate: int, in_transition: bool) -> Dict[str, Dict[str, float]]:
+    """The SELECTED strategy is computed live (≤1h cache). The others come from
+    the GitHub Actions monitor's persisted state (no Streamlit CPU cost)."""
+    from regime_portfolio import STRATEGY_LABELS, selected_strategy
+    out: Dict[str, Dict[str, float]] = {}
+    persisted = _monitor_state().get("all_strategy_targets") or {}
+    for k, v in persisted.items():
+        if k in STRATEGY_LABELS:
+            out[k] = v
+    chosen = selected_strategy()
+    try:
+        out[chosen] = _live_strategy_target(chosen, confirmed, candidate, in_transition)
+    except Exception:
+        pass
     return out
 
 

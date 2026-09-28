@@ -13,6 +13,25 @@ from datetime import datetime, timedelta
 # Streamlit page configuration must execute before any other Streamlit command.
 st.set_page_config(page_title="Makro Trend v2.3 (Continuum Master Grade)", layout="wide")
 
+# --- Yerel modül tazeliği -------------------------------------------------
+# Streamlit Cloud, repo güncellenince sayfa betiğini yeniden çalıştırır ama
+# daha önce içe aktarılmış yardımcı modülleri (sys.modules) bellekte ESKİ
+# halleriyle tutabilir -> "ImportError: cannot import name ..." hataları.
+# Dosyası diskte değişmiş her yerel modül, bağımlılık sırasıyla yeniden yüklenir.
+import importlib as _il, os as _os, sys as _sys, time as _time
+for _name in ("asset_regime_weights", "macro_event_interpretation", "asset_signal_engine",
+              "regime_portfolio", "macro_pipeline"):
+    _mod = _sys.modules.get(_name)
+    _f = getattr(_mod, "__file__", None) if _mod else None
+    if _mod is not None and _f and _os.path.exists(_f) and _os.path.getmtime(_f) > getattr(_mod, "__loaded_at__", 0):
+        try:
+            _mod = _il.reload(_mod)
+        except Exception:
+            pass
+    if _mod is not None:
+        _mod.__loaded_at__ = _time.time()
+
+
 # Robust engine loading: namespace imports + explicit API contract.
 try:
     import macro_event_interpretation as macro_engine
@@ -535,11 +554,22 @@ with main_tab2:
     st.metric(f"{asset} Model Sinyali", selected_asset_state.get("label", "NÖTR"), f"Skor {selected_asset_state.get('score',0.0):+.1f} | Güven %{selected_asset_state.get('confidence',0.0)*100:.0f}")
 
     st.markdown("### 🌐 8 Varlık Süper Tarama — Makro + Piyasa + Risk Döngüsü")
+    st.caption("Skor = kanıt ağırlıklı skor: her bileşen, 10 yıllık gerçek veride o varlığın sonraki 60 gününü "
+               "ne kadar iyi öngördüğüyle (t-istatistiği) ölçeklenir. Kanıt Gücü düşükse etiket nötre yaklaşır; "
+               "Ham Skor ağırlıksız değerdir. Kaynak: validation_reports/signal_reliability.json (her pazar yenilenir).")
     st.caption("Her varlık kendi makro duyarlılık işaretleri, 5G/20G/60G piyasa teyidi ve stratejik/taktik risk döngüsü ile değerlendirilir.")
+    try:
+        from macro_pipeline import get_cycle_signals
+        _cycle = get_cycle_signals()
+    except Exception:
+        _cycle = {}
+    _sel_cyc = _cycle.get(asset, {})
+    st.metric(f"{asset} — Uzun Vadeli Döngü (al-unut / sat-unut)", _sel_cyc.get("label", "—"),
+              (f"Son sinyal: {_sel_cyc['last_event']} · {_sel_cyc['last_event_date']}" if _sel_cyc.get("last_event") else None))
     scan_rows=[]
     for scan_asset,state in asset_scan.items():
         mk=state.get('market',{})
-        scan_rows.append({"Varlık":scan_asset,"Sinyal":state.get('label','NÖTR'),"Skor":round(float(state.get('score',0)),1),"Güven":f"%{float(state.get('confidence',0))*100:.0f}","5G Z":round(float(mk.get('ret5_z',0)),2),"20G Z":round(float(mk.get('ret20_z',0)),2),"60G Z":round(float(mk.get('ret60_z',0)),2),"Hedef Pay":f"%{target_portfolio_weights.get(scan_asset,0):.1f}"})
+        scan_rows.append({"Varlık":scan_asset,"Sinyal":state.get('label','NÖTR'),"Skor":round(float(state.get('score',0)),1),"Uzun Vade (Döngü)":_cycle.get(scan_asset,{}).get("label","—"),"Ham Skor":round(float(state.get('score_raw',state.get('score',0))),1),"Kanıt Gücü":f"%{np.mean(list((state.get('reliability') or {'x':1}).values()))*100:.0f}","Güven":f"%{float(state.get('confidence',0))*100:.0f}","5G Z":round(float(mk.get('ret5_z',0)),2),"20G Z":round(float(mk.get('ret20_z',0)),2),"60G Z":round(float(mk.get('ret60_z',0)),2),"Hedef Pay":f"%{target_portfolio_weights.get(scan_asset,0):.1f}"})
     st.dataframe(pd.DataFrame(scan_rows).sort_values('Skor',ascending=False),use_container_width=True,hide_index=True)
 
 

@@ -103,7 +103,7 @@ def fetch_yf(ticker: str) -> pd.Series:
         try:
             data = yf.download(
                 ticker,
-                period="12y",
+                period="20y",
                 interval="1d",
                 auto_adjust=False,
                 progress=False,
@@ -347,6 +347,21 @@ try:
 except Exception as exc:
     print(f"[WARN] asset signal scan skipped: {exc}")
 
+# v3.0: long-horizon cycle signals (al-unut / sat-unut) per asset
+cycle_signals = {}
+try:
+    from cycle_engine import current_cycle_signal, load_cycle_params
+    _cparams = load_cycle_params()
+    _cprices = {
+        "Altın (XAU)": yf_data["gold"], "Gümüş (XAG)": yf_data["xag"], "Nasdaq 100 (NQ)": yf_data["qqq"],
+        "S&P 500 (SPX)": yf_data["spx"], "Kripto (BTC)": yf_data["btc"], "Ham Petrol (WTI)": yf_data["oil"],
+        "Bakır (HG)": yf_data["hg"], "ABD Tahvili / Faiz (TLT)": yf_data["tlt"],
+    }
+    for _a, _s in _cprices.items():
+        cycle_signals[_a] = current_cycle_signal(_a, _s, _cparams.get(_a))
+except Exception as exc:
+    print(f"[WARN] cycle signals failed: {exc}")
+
 # v2.5: target = regime MINIMUM-DRAWDOWN portfolio (regime_portfolio.py),
 # identical to the Streamlit "🎯 Hedef Portföy" page (same 2500-day window).
 regime_portfolio_summary = {}
@@ -360,7 +375,16 @@ try:
     _ports = compute_regime_portfolios(results["confirmed_regime_id"], _prices, lookback_days=2500)
     from regime_portfolio import selected_strategy, strategy_weights
     _strategy = selected_strategy()
-    target_portfolio_weights = strategy_weights(
+    from regime_portfolio import STRATEGY_LABELS
+    _cache = {}
+    all_strategy_targets = {}
+    for _s in STRATEGY_LABELS:
+        try:
+            all_strategy_targets[_s] = strategy_weights(
+                _s, _prices, results["confirmed_regime_id"], final_id, candidate_id, in_transition, regime_cache=_cache)
+        except Exception as _exc:
+            print(f"[WARN] strategy {_s} failed: {_exc}")
+    target_portfolio_weights = all_strategy_targets.get(_strategy) or strategy_weights(
         _strategy, _prices, results["confirmed_regime_id"], final_id, candidate_id, in_transition
     )
     regime_portfolio_summary = {
@@ -437,6 +461,8 @@ current_state = {
     "asset_signals": asset_signals,
     "regime_min_drawdown_portfolios": regime_portfolio_summary,
     "portfolio_strategy": locals().get("_strategy"),
+    "all_strategy_targets": locals().get("all_strategy_targets", {}),
+    "cycle_signals": locals().get("cycle_signals", {}),
     "factor_scores": factor_scores_snapshot,
 }
 
@@ -455,7 +481,9 @@ material_structural_change = (
     or abs(float(structural.get("risk_rotation_20",0.50)) - float(previous_structural.get("risk_rotation_20",0.50))) >= 0.10
 )
 previous_labels = {k: (v or {}).get("label") for k, v in (previous_current.get("asset_signals") or {}).items()} if isinstance(previous_current, dict) else {}
-signal_label_change = bool(asset_signals) and any(
+prev_cycle = {k: (v or {}).get("label") for k, v in (previous_current.get("cycle_signals") or {}).items()} if isinstance(previous_current, dict) else {}
+cycle_change = bool(cycle_signals) and any(prev_cycle.get(k) != v.get("label") for k, v in cycle_signals.items())
+signal_label_change = cycle_change or bool(asset_signals) and any(
     previous_labels.get(k) != v.get("label") for k, v in asset_signals.items()
 )
 should_persist = (

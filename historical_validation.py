@@ -139,13 +139,13 @@ def apply_publication_lag(s: pd.Series, lag_bdays: int) -> pd.Series:
 
 
 def download_all(years: int, cache_dir: Optional[str] = None) -> Dict[str, pd.Series]:
-    start = (pd.Timestamp.now() - pd.DateOffset(years=years + 2)).strftime("%Y-%m-%d")
+    start = (pd.Timestamp.now() - pd.DateOffset(years=years + 6)).strftime("%Y-%m-%d")
     data: Dict[str, pd.Series] = {}
     for sid, lag in FRED_SERIES.items():
         data[f"fred:{sid}"] = apply_publication_lag(fetch_fred(sid, start), lag)
         time.sleep(0.3)
     for key, tic in YAHOO_SERIES.items():
-        data[key] = fetch_yahoo(tic, years + 2)
+        data[key] = fetch_yahoo(tic, years + 6)
         time.sleep(0.3)
     if cache_dir:
         os.makedirs(cache_dir, exist_ok=True)
@@ -228,8 +228,10 @@ def run_validation(data: Dict[str, pd.Series], years: int = 10, step: int = 5) -
         sliced = {k: v[(v.index <= t) & (v.index >= horizon_start)] for k, v in factor_inputs.items()}
         fs = compute_factor_scores(sliced)
         pr = {a: s[(s.index <= t) & (s.index >= horizon_start)] for a, s in prices.items()}
+        # raw components (no evidence weighting) -> the IC measured here is what
+        # sets the live reliability weights; using them here would be circular.
         scan = compute_all_asset_signals({k: v["z"] for k, v in fs.items()}, pr, structural, conf, subtype,
-                                         cont["regime_probs"], tr)
+                                         cont["regime_probs"], tr, use_reliability=False)
         w = compute_target_portfolio_weights(conf, subtype, structural,
                                              asset_signal_scores={a: s["score"] for a, s in scan.items()})
         weights_rows.append({"date": t, **w})
@@ -245,17 +247,6 @@ def run_validation(data: Dict[str, pd.Series], years: int = 10, step: int = 5) -
         if regime_ports is not None:
             mindd_rows.append({"date": t, **active_target_weights(
                 regime_ports, conf, cand, tr, structural.get("portfolio_risk_budget", 0.5))})
-        # v2.6: every candidate portfolio strategy, out-of-sample
-        from regime_portfolio import STRATEGY_LABELS, strategy_weights
-        if i % max(1, 60 // step) == 0:
-            strat_cache = {}          # regime strategies re-optimised ~quarterly
-        for sname in STRATEGY_LABELS:
-            try:
-                sw = strategy_weights(sname, prices, results["confirmed_regime_id"][results.index <= t],
-                                      conf, cand, tr, as_of=t, regime_cache=strat_cache)
-                strat_rows.setdefault(sname, []).append({"date": t, **sw})
-            except Exception:
-                pass
         for asset, st in scan.items():
             s = pr.get(asset)
             if s is None or len(s) < 260:
@@ -284,12 +275,32 @@ def run_validation(data: Dict[str, pd.Series], years: int = 10, step: int = 5) -
     factors = pd.DataFrame(factor_rows).set_index("date") if factor_rows else pd.DataFrame()
     strategies = {k: pd.DataFrame(v).set_index("date") for k, v in strat_rows.items() if v}
     return {"signals": sig, "weights": wts, "mindd_weights": mindd, "factors": factors, "strategies": strategies,
+            "raw_prices": prices, "years": years,
             "results": results, "prices": px, "step": step}
 
 
 # ----------------------------------------------------------------------
 # Report
 # ----------------------------------------------------------------------
+def write_signal_reliability(sig: pd.DataFrame, step: int, path: str) -> None:
+    """Per asset & component: IC60, t-stat and reliability = clip(t/2, 0, 1),
+    consumed live by asset_signal_engine.load_signal_reliability()."""
+    out = {}
+    for asset in sorted(sig["asset"].unique()):
+        a = sig[sig["asset"] == asset]
+        n = int(a["fwd60"].notna().sum())
+        out[asset] = {}
+        for comp in ("macro", "market", "structure"):
+            ic = _spearman(a[comp], a["fwd60"])
+            t = None if ic is None else ic * math.sqrt(max(1.0, n * step / 60.0))
+            out[asset][comp] = {"ic60": ic, "t60": t, "n": n,
+                                "reliability": 0.0 if t is None else float(np.clip(t / 2.0, 0.0, 1.0))}
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"generated_at": pd.Timestamp.now(tz="UTC").isoformat(), "horizon_days": 60,
+                   "rule": "reliability = clip(t60 / 2, 0, 1)", "assets": out}, fh, ensure_ascii=False, indent=1)
+
+
 def _ic_block(sig: pd.DataFrame, step: int) -> List[str]:
     L = ["## 2) Sinyal bilgi katsayısı (IC) — skor gerçekten ileriyi gösteriyor mu?",
          "IC = skor ile sonraki getirinin sıra korelasyonu. Pozitif = doğru yön. "
@@ -506,6 +517,98 @@ def _strategy_block(out: Dict[str, object], json_path: str) -> List[str]:
     return L
 
 
+def _cycle_and_portfolio_race(out: Dict[str, object], out_dir: str) -> List[str]:
+    """v3.0: (a) per-asset long-horizon cycle race (walk-forward, yearly re-selection),
+    (b) portfolio strategy race on the SAME out-of-sample cycle states."""
+    from cycle_engine import EXCLUDED_ASSETS, perf_stats, trade_stats, walk_forward_select, cycle_states
+    from regime_portfolio import (STRATEGY_LABELS, MAX_DD_BUDGET, build_price_panel, simulate_strategy)
+    prices: Dict[str, pd.Series] = out["raw_prices"]  # type: ignore
+    results: pd.DataFrame = out["results"]  # type: ignore
+    pc = lambda x: "—" if x is None else f"%{x * 100:.0f}"
+    f = lambda x, pct=True: "—" if x is None or (isinstance(x, float) and not np.isfinite(x)) else (f"%{x*100:+.1f}" if pct else f"{x:.2f}")
+    L = ["## 8) UZUN VADELİ DÖNGÜ SİNYALİ (dipten al-unut / tepeden sat-unut) — varlık bazında örneklem dışı",
+         "Her yıl yalnızca geçmiş veriyle en iyi parametre seçilir (3y/2y değer ortalaması, dip/tepe bant genişliği, "
+         "dönüş teyidi, yeniden giriş kuralı) ve ERTESİ YIL uygulanır. Satış = nakde geç (kaldıraç/açığa satış yok). "
+         "Karşılaştırma aynı dönemde al-tut ile.", "",
+         "| Varlık | Döngü yıllık | Döngü maks. DD | Al-tut yıllık | Al-tut maks. DD | Kârlı al-sat turu | SAT sonrası 120g düşüş isabeti | Piyasada kalma | Canlı parametre |",
+         "|---|---|---|---|---|---|---|---|---|"]
+    cycle_json = {}
+    oos_in = {}
+    for asset, ser in prices.items():
+        if asset in EXCLUDED_ASSETS or ser is None or len(ser) < 1500:
+            continue
+        wf = walk_forward_select(ser)
+        oos = wf["oos_returns"]
+        if len(oos) < 120:
+            continue
+        cs = perf_stats(oos)
+        bh = wf["price"].pct_change().fillna(0.0); bh = bh[bh.index >= oos.index[0]]
+        bs = perf_stats(bh)
+        st_oos = pd.DataFrame({"price": wf["price"], "in_market": wf["oos_in_market"]}).loc[oos.index[0]:]
+        ts = trade_stats(st_oos)
+        oos_in[asset] = wf["oos_in_market"]
+        p = wf["params"]
+        trip_wr = "—" if ts["trip_win_rate"] is None else f"%{ts['trip_win_rate'] * 100:.0f}"
+        sell_hr = "—" if ts["sell_hit_rate_120d"] is None else f"%{ts['sell_hit_rate_120d'] * 100:.0f}"
+        conf_txt = "var" if p["confirm"] else "yok"
+        L.append(f"| {asset} | {f(cs['cagr'])} | {f(cs['max_dd'])} | {f(bs['cagr'])} | {f(bs['max_dd'])} | "
+                 f"{trip_wr} ({ts['round_trips']}) | {sell_hr} ({ts['sell_signals']}) | "
+                 f"%{ts['time_in_market'] * 100:.0f} | L={p['L']}, bant {int(p['q_low'] * 100)}/{int(p['q_high'] * 100)}, "
+                 f"teyit={conf_txt}, giriş={p['reentry']} |")
+        cycle_json[asset] = {"params": p, "oos": cs, "buy_hold": bs, "trades": ts,
+                             "oos_start": str(oos.index[0].date()), "selections": wf["selections"][-3:]}
+    L.append("")
+    try:
+        with open(os.path.join(out_dir, "cycle_params.json"), "w", encoding="utf-8") as fh:
+            json.dump({"generated_at": pd.Timestamp.now(tz="UTC").isoformat(), "assets": cycle_json},
+                      fh, ensure_ascii=False, indent=1, default=str)
+    except Exception:
+        pass
+
+    # ---- portfolio race -------------------------------------------------
+    px = build_price_panel(prices)
+    ci = pd.DataFrame({a: s.reindex(px.index, method="ffill") for a, s in oos_in.items()}) if oos_in else None
+    regime = results["confirmed_regime_id"]
+    start = max(results.index.min() + pd.DateOffset(years=2), px.index.max() - pd.DateOffset(years=int(out.get("years", 10))))
+    L += ["## 7) PORTFÖY STRATEJİSİ YARIŞI (örneklem dışı) — canlı hedef buradan seçilir",
+          f"Öncelik = minimum düşüş: maks. düşüşü %{MAX_DD_BUDGET*100:.0f} içinde kalanlar arasından en yüksek yıllık "
+          "getirili strateji canlıya alınır (hiçbiri sığmazsa en küçük düşüşlü). Döngü stratejisi, varlık döngü "
+          "sinyallerinin ÖRNEKLEM DIŞI hâlini kullanır. Haftalık dengeleme, ertesi gün işlem, 5 bps maliyet, kaldıraç yok.", "",
+          "| Strateji | Yıllık getiri | Maks. düşüş | Calmar | Sharpe | Kazançlı ay oranı | Kazançlı yıl oranı |",
+          "|---|---|---|---|---|---|---|"]
+    scores = {}
+    for name in STRATEGY_LABELS:
+        try:
+            sim = simulate_strategy(name, px, regime, ci if name.startswith("cycle_rp") else None)
+            r = sim["returns"]; r = r[r.index >= start]
+            ps = perf_stats(r)
+            ps["label"] = STRATEGY_LABELS[name]
+            scores[name] = ps
+        except Exception as exc:
+            print(f"[validation] {name} failed: {exc}")
+    eqr = px.pct_change().fillna(0.0).mean(axis=1); eqr = eqr[eqr.index >= start]
+    eqs = perf_stats(eqr)
+    valid = {k: v for k, v in scores.items() if v.get("max_dd") is not None}
+    ok = {k: v for k, v in valid.items() if abs(v["max_dd"]) <= MAX_DD_BUDGET}
+    best = (max(ok, key=lambda k: ok[k]["cagr"]) if ok else
+            (max(valid, key=lambda k: valid[k]["max_dd"]) if valid else None))
+    for k, v in sorted(scores.items(), key=lambda kv: -(kv[1].get("cagr") or -9)):
+        tag = " 🏆 **CANLI SEÇİM**" if k == best else ""
+        L.append(f"| {v['label']}{tag} | {f(v['cagr'])} | {f(v['max_dd'])} | {f(v['calmar'], False)} | "
+                 f"{f(v.get('sharpe'), False)} | {pc(v.get('win_month'))} | {pc(v.get('win_year'))} |")
+    L.append(f"| Eşit ağırlık 8 varlık (referans) | {f(eqs['cagr'])} | {f(eqs['max_dd'])} | {f(eqs['calmar'], False)} | "
+             f"{f(eqs.get('sharpe'), False)} | {pc(eqs.get('win_month'))} | {pc(eqs.get('win_year'))} |")
+    L.append("")
+    try:
+        with open(os.path.join(out_dir, "strategy_scores.json"), "w", encoding="utf-8") as fh:
+            json.dump({"generated_at": pd.Timestamp.now(tz="UTC").isoformat(), "selected": best,
+                       "rule": f"max CAGR s.t. |MaxDD| <= {MAX_DD_BUDGET}", "strategies": scores,
+                       "equal_weight": eqs}, fh, ensure_ascii=False, indent=1, default=str)
+    except Exception:
+        pass
+    return L
+
+
 def write_report(out: Dict[str, object], path: str) -> None:
     sig: pd.DataFrame = out["signals"]  # type: ignore
     results: pd.DataFrame = out["results"]  # type: ignore
@@ -525,7 +628,7 @@ def write_report(out: Dict[str, object], path: str) -> None:
         L += _regime_onset_block(results, px)
         L += _portfolio_block(wts, px, out.get("mindd_weights"))  # type: ignore
         L += _factor_ic_block(sig, out.get("factors"), int(out["step"]))  # type: ignore
-        L += _strategy_block(out, os.path.join(os.path.dirname(path) or ".", "strategy_scores.json"))
+        L += _cycle_and_portfolio_race(out, os.path.dirname(path) or ".")
     L += ["## Sınırlar",
           "- FRED değerleri güncel vintage (piyasa serileri nadiren revize edilir; ICSA/NFCI küçük revizyonlar alabilir).",
           "- ^MOVE ve BDRY gibi serilerin Yahoo geçmişi kısa olabilir; eksik günlerde motorun kendi geri dönüşleri çalışır.",
@@ -549,6 +652,7 @@ def main() -> None:
     sig: pd.DataFrame = out["signals"]  # type: ignore
     if len(sig):
         sig.to_csv(os.path.join(args.out, "historical_signals.csv"), index=False)
+        write_signal_reliability(sig, args.step, os.path.join(args.out, "signal_reliability.json"))
     print(json.dumps({"signals": int(len(sig)), "report": os.path.join(args.out, "historical_validation_report.md")}))
 
 

@@ -1349,7 +1349,7 @@ def get_asset_signal_label(score: float, confidence: float=0.5) -> str:
     return "NÖTR"
 
 
-def compute_asset_signal_state(asset_name: str, factor_scores: Dict[str,float], factor_weights: Dict[str,float], price_series: Any, structural_state: Dict[str,Any], confirmed_regime_id: int=0, deterministic_multiplier: float=1.0) -> Dict[str,Any]:
+def compute_asset_signal_state(asset_name: str, factor_scores: Dict[str,float], factor_weights: Dict[str,float], price_series: Any, structural_state: Dict[str,Any], confirmed_regime_id: int=0, deterministic_multiplier: float=1.0, reliability: Optional[Dict[str,float]] = None) -> Dict[str,Any]:
     """Asset-aware signal combining macro sensitivity, cross-horizon tape confirmation and risk-cycle state."""
     polarity=ASSET_SIGNAL_POLARITY.get(asset_name,{})
     contributions={}; macro_raw=0.0
@@ -1387,9 +1387,17 @@ def compute_asset_signal_state(asset_name: str, factor_scores: Dict[str,float], 
         macro_w, market_w, structure_w, regime_w = 0.42, 0.38, 0.15, 0.05
     else:
         macro_w, market_w, structure_w, regime_w = 0.32, 0.45, 0.18, 0.05
-    score=float(np.clip(100*(macro_w*macro_component+market_w*market_component+structure_w*structure+regime_w*regime_context),-100,100))
+    raw_score=float(np.clip(100*(macro_w*macro_component+market_w*market_component+structure_w*structure+regime_w*regime_context),-100,100))
+    # v2.7 EVIDENCE WEIGHTING: each component is scaled by how well it has
+    # actually predicted THIS asset's next-60-day return in the real-data
+    # validation (reliability = clip(t-stat/2, 0, 1); 1.0 = |t|>=2 proven,
+    # 0 = no edge or wrong direction). No validation file -> 1.0 (unchanged).
+    rel = reliability or {}
+    r_mac = float(rel.get("macro", 1.0)); r_mkt = float(rel.get("market", 1.0)); r_str = float(rel.get("structure", 1.0))
+    r_reg = float(np.mean([r_mac, r_mkt, r_str]))
+    score=float(np.clip(100*(macro_w*macro_component*r_mac+market_w*market_component*r_mkt+structure_w*structure*r_str+regime_w*regime_context*r_reg),-100,100))
     confidence=float(np.clip(0.35+0.20*min(1,market["data_points"]/504)+0.20*abs(macro_component)+0.15*abs(market_component)+0.10*structural_state.get('confidence',0.5),0,1))
-    return {"asset":asset_name,"score":score,"label":get_asset_signal_label(score,confidence),"confidence":confidence,"macro_component":macro_component,"macro_raw":float(macro_raw),"market_component":market_component,"structure_component":structure,"deterministic_multiplier":float(deterministic_multiplier),"factor_contributions":contributions,"market":market,"regime_id":int(confirmed_regime_id)}
+    return {"asset":asset_name,"score":score,"score_raw":raw_score,"reliability":{"macro":r_mac,"market":r_mkt,"structure":r_str},"label":get_asset_signal_label(score,confidence),"confidence":confidence,"macro_component":macro_component,"macro_raw":float(macro_raw),"market_component":market_component,"structure_component":structure,"deterministic_multiplier":float(deterministic_multiplier),"factor_contributions":contributions,"market":market,"regime_id":int(confirmed_regime_id)}
 
 
 def get_macro_interpretation_asset_multipliers(confirmed_regime_id: int, subtype: str = "") -> Dict[str, float]:

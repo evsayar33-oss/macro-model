@@ -1,3 +1,97 @@
+# 2026-09-28 — v3.0: Uzun vadeli döngü motoru (dipten al-unut / tepeden sat-unut) + düşüş öncelikli, rejime uyumlu portföy
+
+## 1) 🔄 Uzun vadeli döngü sinyali — tahvil dışındaki tüm varlıklar (`cycle_engine.py`)
+- **Tepe/dip ölçüsü:** fiyatın kendi 2-3 yıllık log-ortalamasından sapması (uzun vadeli
+  değer / tersine dönüş sinyali — kurumsal çapraz-varlık araştırmalarının "value" ölçüsü).
+- **Bantlar kendini ayarlar:** dip = varlığın kendi geçmişindeki en ucuz %10-20'lik dilim,
+  tepe = en pahalı %10-20'lik dilim (genişleyen pencere, sabit sayı yok).
+- **Kurulum + tetik:** bölgeye girmek sinyali ~6 ay KURAR; dönüş teyidi gelince işler
+  (dip: fiyat 50g ortalamanın üstüne çıkıp 20g getiri pozitif; tepe: tersi). Düşen
+  bıçağı tutmamak / yükselen trendi erken satmamak için.
+- **Al-unut / sat-unut:** karar bir sonraki uç bölgeye kadar korunur. Satış = nakde geç
+  (kaldıraç, açığa satış yok). Gürültülü test döngüsünde tepelere (döngü konumu 0.96-0.99)
+  ve diplere (−0.92…−1.0) çok yakın, 15 yılda sadece 7 işlem.
+- **Kendini geliştiren parametre seçimi:** her varlık için 24 aday (2y/3y ortalama,
+  bant genişliği, teyit, yeniden giriş kuralı) doğrulamada **her yıl yalnızca geçmiş
+  veriyle** yeniden seçilir ve ertesi yıl uygulanır. Kazanan
+  `validation_reports/cycle_params.json`'a yazılır; canlı sinyal onu kullanır.
+- **Tahvil (TLT) hariç:** faiz modeli + trend kuralı geçerli.
+- Görünüm: ana sayfada seçili varlık için "Uzun Vadeli Döngü" metriği ve tarama
+  tablosunda sütun; Hedef Portföy sayfasında 8 varlık tablosu (sinyal, değer z,
+  bant konumu 0=dip…100=tepe, son sinyal tarihi). İzleyici de kaydeder.
+
+## 2) 🎯 Portföy: önce minimum düşüş, sonra maksimum getiri
+- 9 strateji = {risk paritesi, risk paritesi + 200g trend, **döngü + risk paritesi**} ×
+  {%10 vol hedefi, **rejime göre vol hedefi** (şok rejimlerinde %6-7, nötr %10, likidite
+  rallisinde %12), **rejime göre vol + düşüş freni** (portföy zirvesinin %4 altından
+  itibaren risk kademeli azalır, %12'de %25'e iner, toparlandıkça geri gelir)}.
+- **Seçim kuralı (senin önceliğin):** örneklem dışı maks. düşüşü **%12 içinde** kalanlar
+  arasından **en yüksek yıllık getirili** olan canlı olur; hiçbiri sığmazsa en küçük düşüşlü.
+- Döngü stratejisi, varlık sinyallerinin ÖRNEKLEM DIŞI (yıllık yeniden seçilen) hâlini
+  kullanarak test edilir.
+- Raporda kazançlı ay ve kazançlı yıl oranları (win rate) da var.
+- Canlı ağırlıklar, testte kullanılan AYNI simülatörden gelir. Seçilen strateji
+  uygulamada canlı hesaplanır, diğerleri GitHub izleyicisinden okunur (CPU dostu).
+- Eski rejim-LP stratejileri 28.09 gerçek testinde kaybettiği için yarıştan çıkarıldı
+  (Hedef Portföy sayfasında referans tablo olarak duruyor).
+
+## 3) Doğrulama raporu
+- Bölüm 8: varlık bazında döngü sinyali (örneklem dışı yıllık getiri, maks. düşüş,
+  aynı dönem al-tut, kârlı al-sat turu oranı, SAT sonrası 120 günde düşüş isabeti,
+  piyasada kalma süresi, seçilen parametre).
+- Bölüm 7: yeni 9 stratejilik yarış + seçim.
+- Çok yıllık sinyaller için veri geçmişi 16 yıla uzatıldı.
+
+## Test
+13/13 test (yeni: döngü tepede satar/dipte alır ve az işlem yapar; tahvil döngü dışı;
+düşüş freni maks. düşüşü azaltır). Ana sayfa, Hedef Portföy, izleyici ve doğrulama sahte
+veriyle baştan sona çalıştı.
+
+---
+
+# 2026-09-28 — v2.7: sayfa hatası, CPU kısıtlaması, kanıt ağırlıklı sinyaller
+
+## 1) "ImportError" (Hedef Portföy sayfası) — düzeltildi
+Repodaki dosyalar doğruydu. Streamlit Cloud, repo güncellenince sayfayı yeniden
+çalıştırıyor ama önceden içe aktarılmış yardımcı modülleri (regime_portfolio,
+macro_pipeline…) bellekte ESKİ halleriyle tutuyordu. Yeni sayfa eski modülde olmayan
+`STRATEGY_LABELS`'i isteyince çöktü. Artık app.py ve sayfa, diskte değişmiş her yerel
+modülü bağımlılık sırasıyla otomatik yeniden yüklüyor (eski modül senaryosu
+taklit edilerek test edildi).
+
+## 2) "Your app has been throttled" (CPU kısıtlaması) — azaltıldı
+- Ağır doğrusal programlama optimizasyonları (rejim portföyleri) artık uygulamada
+  değil, GitHub Actions izleyicisinde (2 saatte bir) hesaplanıp `backtest_summary.json`'a
+  yazılıyor; uygulama bunları okuyor. Rejim değiştiyse en fazla 6 saatte bir yerel hesap.
+- Optimizasyon yolu 5 günlük bloklara toplandı (~5 kat küçük problem).
+- Canlı hesaplanan stratejiler (risk paritesi) saniyeler sürer.
+
+## 3) TLT hâlâ SAT diyordu — kanıt ağırlıklı sinyal
+Gerçek veride (09:43 izleyici çalışması): TLT −50.8. Nedenleri: reel faiz son 60 günde
+hızla yükseldi (değişim z = −2.0), piyasa faiz artırımı fiyatlıyor ve TLT güçlü düşüş
+trendinde (piyasa bileşeni −0.75). Yani yeni mantıkla da "yükselen faiz" diyordu.
+Ama 10 yıllık doğrulama TLT sinyalinin **kanıtlanmış bir öngörü gücü olmadığını**
+gösteriyor (IC +0.10, t = 0.6). Kanıtı olmayan bir sinyalin güçlü SAT etiketi basması
+yanlış.
+- Yeni kural: skorun her bileşeni (makro / piyasa / risk döngüsü), o varlığın sonraki
+  60 günlük getirisini 10 yılda ne kadar öngördüğüyle ölçeklenir:
+  güvenilirlik = clip(t / 2, 0, 1). |t| ≥ 2 → tam ağırlık; ters/boş → 0.
+- Doğrulama bu değerleri her pazar `validation_reports/signal_reliability.json`'a
+  yazar (bu paket 28.09 gerçek raporundan hesaplanmış başlangıç dosyasını içerir).
+  Doğrulamanın kendisi ağırlıksız bileşenleri ölçer (döngüsel kendini onaylama yok).
+- Sonuç (gerçek bileşenlerle): TLT ≈ −11 → **NÖTR**. Altın/gümüşün makro sinyali
+  10 yılda ters çalıştığı için nötre iner; BTC (t 2.5) tam güçte kalır; NQ/SPX'te
+  makro korunur, ters çalışan piyasa bileşeni sıfırlanır. 10 yıllık sinyallerde
+  60 günlük IC: NQ 0.13→0.22, SPX 0.08→0.14, bakır −0.12→+0.07, gümüş −0.08→+0.07
+  (örneklem içi, gösterge niteliğinde).
+- Tarama tablosunda yeni sütunlar: "Ham Skor" ve "Kanıt Gücü".
+
+## Test
+10/10 test; ana sayfa, Hedef Portföy sayfası (eski modül senaryosu dahil), izleyici
+sahte veriyle baştan sona çalıştı.
+
+---
+
 # 2026-09-28 — v2.6: TLT/reel faiz düzeltmesi, sinyalde "dipten al", portföy strateji yarışı
 
 ## 1) Tahvil (TLT) neden hâlâ SAT diyordu — düzeltildi
